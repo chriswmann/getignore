@@ -1,14 +1,17 @@
 use std::error::Error;
 use std::fmt::{self, Display};
+use std::fs;
 use std::io;
 use std::time::Duration;
 use std::{ffi::OsStr, path::PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
+use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 use ureq::{Agent, Body, http::Response};
 
+const APP_NAME: &str = "getignore";
 const GITIGNORE_LIST_URL: &str =
     "https://api.github.com/repos/github/gitignore/git/trees/main?recursive=1";
 
@@ -54,6 +57,7 @@ enum AppError {
     NoLanguage(PathBuf),
     Network(ureq::Error),
     Io(io::Error),
+    Disk(String),
 }
 
 impl Error for AppError {}
@@ -67,6 +71,7 @@ impl Display for AppError {
             ),
             AppError::Network(err) => write!(f, "Network error: {err}"),
             AppError::Io(err) => write!(f, "IO error: {err}"),
+            AppError::Disk(err) => write!(f, "Disk error: {err}"),
         }
     }
 }
@@ -87,7 +92,7 @@ fn main() -> Result<()> {
     let opts = Opts::parse();
     let tree = load_repo_tree(&opts)?;
     let tree: GitTreeResponse = serde_json::from_str(&tree)?;
-    for entry in tree.tree {
+    for entry in &tree.tree {
         let path = entry.path.clone();
         if entry.kind == GitObjectKind::Blob && path.extension() == Some(OsStr::new("gitignore")) {
             let language = path
@@ -100,6 +105,13 @@ fn main() -> Result<()> {
             println!("{}", path.display());
         }
     }
+    let base = BaseDirs::new().ok_or_else(|| AppError::Disk("Could not open BaseDirs".into()))?;
+    let cache_dir = base.cache_dir().join(APP_NAME);
+    fs::create_dir_all(&cache_dir)?;
+    let cache_file = cache_dir.join("getignore.json");
+    let tree = serde_json::to_string_pretty(&tree)?;
+    fs::write(cache_file, tree)?;
+
     Ok(())
 }
 
