@@ -1,0 +1,10 @@
+[tasks.fetch-tree]
+description = "Fetch the github/gitignore repo tree into data/trees.json (gitignored dev data)"
+run = """
+mkdir -p data
+curl -sS \
+  -H "User-Agent: gi-dev" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/github/gitignore/git/trees/main?recursive=1" \
+  | jq . > data/trees.json
+"""
