@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "fetched_at": 1750765200,
+  "source_commit": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  "entries": {
+    "Python.gitignore":                  { "name": "Python", "sha": "8f3e1a9b2c4d5e6f7081920a3b4c5d6e7f80e1a2" },
+    "Rust.gitignore":                    { "name": "Rust",   "sha": "44ab90c1d2e3f4051627384950a1b2c3d4e5f690" },
+    "Go.gitignore":                      { "name": "Go",     "sha": "1b2c3d4e5f60718293a4b5c6d7e8f90123456701" },
+    "Node.gitignore":                    { "name": "Node",   "sha": "c0ffee00d1e2f3a4b5c60718293a4b5c6d7e8f90" },
+    "Haskell.gitignore":                 { "name": "Haskell","sha": "deadbeef0123456789abcdef0123456789abcdef" },
+    "Global/Vim.gitignore":              { "name": "Vim",    "sha": "0c12ff34a5b6c7d8e9f00112233445566778899a" },
+    "Global/Emacs.gitignore":            { "name": "Emacs",  "sha": "abc1230000111122223333444455556666777788" },
+    "Global/macOS.gitignore":            { "name": "macOS",  "sha": "5a5a5a5a6b6b6b6b7c7c7c7c8d8d8d8d9e9e9e9e" },
+    "community/Python/Nikola.gitignore": { "name": "Nikola", "sha": "77de0211223344556677889900aabbccddeeff00" },
+    "community/Elixir/Phoenix.gitignore":{ "name": "Phoenix","sha": "99aa88bb77cc66dd55ee44ff33001122334455667" }
+  }
+}
