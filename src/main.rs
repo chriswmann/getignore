@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{self, Display};
 use std::fs;
@@ -25,12 +26,37 @@ struct Opts {
     gitignore_list_url: Option<String>,
     #[arg(short, long)]
     destination: PathBuf,
+    #[arg(short, long)]
+    language: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct CachedTree {
+struct Index {
+    version: u32,
     fetched_at: u64,
-    tree: GitTreeResponse,
+    source_commit: String,
+    entries: BTreeMap<String, Entry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Entry {
+    name: String,
+    sha: String,
+}
+
+impl TryFrom<GitTreeEntry> for Entry {
+    type Error = AppError;
+    fn try_from(git_entry: GitTreeEntry) -> Result<Self, Self::Error> {
+        Ok(Self {
+            name: git_entry
+                .path
+                .file_stem()
+                .ok_or_else(|| AppError::NoLanguage(git_entry.path.clone()))?
+                .to_string_lossy()
+                .to_string(),
+            sha: git_entry.sha,
+        })
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,11 +90,17 @@ enum GitObjectKind {
 #[derive(Debug)]
 enum AppError {
     NoLanguage(PathBuf),
-    Network(ureq::Error),
-    Io(io::Error),
+    AmbiguousLanguage {
+        language: String,
+        matches: Vec<String>,
+    },
     Disk(String),
-    Time(SystemTimeError),
+    Io(io::Error),
+    Network(ureq::Error),
+    LanguageNotFound(String),
     Serialisation(serde_json::Error),
+    Time(SystemTimeError),
+    TruncatedTree,
 }
 
 impl Error for AppError {}
@@ -80,7 +112,16 @@ impl Display for AppError {
                 "No language associated with gitignore entry {}",
                 path.display()
             ),
+            AppError::LanguageNotFound(language) => {
+                write!(f, "No gitignore entry found for {language}")
+            }
+            AppError::AmbiguousLanguage { language, matches } => write!(
+                f,
+                "Multiple gitignore entries matched {language}: {}",
+                matches.join(", ")
+            ),
             AppError::Network(err) => write!(f, "Network error: {err}"),
+            AppError::TruncatedTree => write!(f, "GH tree response was truncated"),
             AppError::Io(err) => write!(f, "IO error: {err}"),
             AppError::Disk(err) => write!(f, "Disk error: {err}"),
             AppError::Time(err) => write!(f, "Time error: {err}"),
@@ -124,10 +165,10 @@ fn main() -> Result<()> {
     let cache_file = cache_file.as_path();
     let ttl = Duration::from_hours(24 * 7);
     let now = unix_now()?;
-    let tree = match load_cache(cache_file) {
-        Ok(cached) if is_not_stale(&cached, ttl, now) => {
+    let index = match load_cache(cache_file) {
+        Ok(index) if is_not_stale(&index, ttl, now) => {
             debug!("Serving from cache");
-            cached.tree
+            index
         }
         Ok(_) => {
             debug!("Cache is stale, refetching");
@@ -138,27 +179,39 @@ fn main() -> Result<()> {
             fetch_and_cache(&opts, cache_file, now)?
         }
     };
-    dbg!(tree);
+    let lookup = index_lookup(&opts.language, &index)?;
+    dbg!(lookup);
     Ok(())
 }
 
 fn load_from_github(opts: &Opts) -> Result<GitTreeResponse> {
     let tree = load_repo_tree(opts)?;
-    let tree: GitTreeResponse = serde_json::from_str(&tree)?;
-    for entry in &tree.tree {
-        let path = entry.path.clone();
-        if entry.kind == GitObjectKind::Blob && path.extension() == Some(OsStr::new("gitignore")) {
-            let language = path
-                .file_name()
-                .ok_or_else(|| AppError::NoLanguage(path.clone()))?;
-            let category = path.parent().filter(|&p| !p.as_os_str().is_empty());
+    Ok(serde_json::from_str(&tree)?)
+}
 
-            println!("{category:?}");
-            println!("{}", language.display());
-            println!("{}", path.display());
+fn build_index(response: GitTreeResponse, fetched_at: u64) -> Result<Index, AppError> {
+    if response.truncated {
+        return Err(AppError::TruncatedTree);
+    }
+
+    let mut entries = BTreeMap::new();
+
+    for git_entry in response.tree {
+        if git_entry.kind == GitObjectKind::Blob
+            && git_entry.path.extension().and_then(OsStr::to_str) == Some("gitignore")
+        {
+            let path = git_entry.path.to_string_lossy().to_string();
+            let entry = Entry::try_from(git_entry)?;
+            entries.insert(path, entry);
         }
     }
-    Ok(tree)
+
+    Ok(Index {
+        version: 1,
+        fetched_at,
+        source_commit: response.sha,
+        entries,
+    })
 }
 
 fn get_language_list_response(agent: &Agent, url: &str) -> Result<Response<Body>, ureq::Error> {
@@ -183,13 +236,13 @@ fn load_repo_tree(opts: &Opts) -> Result<String, AppError> {
     Ok(response.body_mut().read_to_string()?)
 }
 
-fn save_cache(cache_file: &Path, cached: &CachedTree) -> Result<()> {
-    let json = serde_json::to_string_pretty(cached)?;
+fn save_cache(cache_file: &Path, index: &Index) -> Result<()> {
+    let json = serde_json::to_string_pretty(index)?;
     fs::write(cache_file, json)?;
     Ok(())
 }
 
-fn load_cache(cache_file: &Path) -> Result<CachedTree, AppError> {
+fn load_cache(cache_file: &Path) -> Result<Index, AppError> {
     let file = fs::File::open(cache_file)?;
     let reader = BufReader::new(file);
     Ok(serde_json::from_reader(reader)?)
@@ -199,16 +252,69 @@ fn unix_now() -> Result<u64, AppError> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
 }
 
-fn is_not_stale(cached: &CachedTree, ttl: Duration, now: u64) -> bool {
-    now.saturating_sub(cached.fetched_at) < ttl.as_secs()
+fn is_not_stale(index: &Index, ttl: Duration, now: u64) -> bool {
+    now.saturating_sub(index.fetched_at) < ttl.as_secs()
 }
 
-fn fetch_and_cache(opts: &Opts, cache_file: &Path, now: u64) -> Result<GitTreeResponse> {
+fn fetch_and_cache(opts: &Opts, cache_file: &Path, now: u64) -> Result<Index> {
     let response = load_from_github(opts)?;
-    let cached_tree = CachedTree {
-        fetched_at: now,
-        tree: response,
-    };
-    save_cache(cache_file, &cached_tree)?;
-    Ok(cached_tree.tree)
+    let index = build_index(response, now)?;
+    save_cache(cache_file, &index)?;
+    Ok(index)
+}
+
+fn index_lookup<'a>(language: &str, index: &'a Index) -> Result<(&'a str, &'a Entry), AppError> {
+    let needle = normalise_lookup(language);
+
+    let exact_matches: Vec<_> = index
+        .entries
+        .iter()
+        .filter(|(path, entry)| {
+            normalise_lookup(path) == needle || normalise_lookup(&entry.name) == needle
+        })
+        .map(|(path, entry)| (path.as_str(), entry))
+        .collect();
+
+    match exact_matches.as_slice() {
+        [(path, entry)] => return Ok((*path, *entry)),
+        [] => {}
+        matches => {
+            return Err(AppError::AmbiguousLanguage {
+                language: language.to_string(),
+                matches: matches
+                    .iter()
+                    .map(|(path, _)| (*path).to_string())
+                    .collect(),
+            });
+        }
+    }
+
+    let loose_matches: Vec<_> = index
+        .entries
+        .iter()
+        .filter(|(path, entry)| {
+            normalise_lookup(path).contains(&needle)
+                || normalise_lookup(&entry.name).contains(&needle)
+        })
+        .map(|(path, entry)| (path.as_str(), entry))
+        .collect();
+
+    match loose_matches.as_slice() {
+        [(path, entry)] => Ok((*path, *entry)),
+        [] => Err(AppError::LanguageNotFound(language.to_string())),
+        matches => Err(AppError::AmbiguousLanguage {
+            language: language.to_string(),
+            matches: matches
+                .iter()
+                .map(|(path, _)| (*path).to_string())
+                .collect(),
+        }),
+    }
+}
+
+fn normalise_lookup(value: &str) -> String {
+    value
+        .trim()
+        .trim_end_matches(".gitignore")
+        .to_ascii_lowercase()
 }
