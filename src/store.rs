@@ -1,43 +1,12 @@
-use std::collections::BTreeMap;
-use std::ffi::OsStr;
 use std::fs;
 use std::io::BufReader;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
-
 use crate::errors::AppError;
-use crate::github::{Entry, GitObjectKind, GitTreeResponse, load_from_github};
+use crate::github::{Index, build_index, load_from_github};
 use crate::options::Opts;
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Index {
-    version: u32,
-    pub fetched_at: u64,
-    source_commit: String,
-    entries: BTreeMap<String, Entry>,
-}
-pub fn build_index(response: GitTreeResponse, fetched_at: u64) -> Result<Index, AppError> {
-    if response.truncated {
-        return Err(AppError::TruncatedTree);
-    }
-    let mut entries = BTreeMap::new();
-    for git_entry in response.tree {
-        if git_entry.kind == GitObjectKind::Blob
-            && git_entry.path.extension().and_then(OsStr::to_str) == Some("gitignore")
-        {
-            let path = git_entry.path.to_string_lossy().to_string();
-            let entry = Entry::try_from(git_entry)?;
-            entries.insert(path, entry);
-        }
-    }
-    Ok(Index {
-        version: 1,
-        fetched_at,
-        source_commit: response.sha,
-        entries,
-    })
-}
+
 fn save_cache(cache_file: &Path, index: &Index) -> Result<(), AppError> {
     let json = serde_json::to_string_pretty(index)?;
     fs::write(cache_file, json)?;
