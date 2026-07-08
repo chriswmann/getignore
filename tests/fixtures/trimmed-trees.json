@@ -1,0 +1,77 @@
+{
+  "sha": "dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46",
+  "url": "https://api.github.com/repos/github/gitignore/git/trees/dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46",
+  "tree": [
+    {
+      "path": ".github",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "a9617d6ea0a031d10b549a8c936419802331be57",
+      "url": "https://api.github.com/repos/github/gitignore/git/trees/a9617d6ea0a031d10b549a8c936419802331be57"
+    },
+    {
+      "path": ".github/CODEOWNERS",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "312344480f0cff99384ed2f0a65229f77acff9f8",
+      "size": 292,
+      "url": "https://api.github.com/repos/github/gitignore/git/blobs/312344480f0cff99384ed2f0a65229f77acff9f8"
+    },
+    {
+      "path": "Ada.gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b4d703968a488445345202ef8d45a35cc802aa03",
+      "size": 51,
+      "url": "https://api.github.com/repos/github/gitignore/git/blobs/b4d703968a488445345202ef8d45a35cc802aa03"
+    },
+    {
+      "path": "Python.gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b3ec7d5e13aa02435b3b4372b8cb22b57429924a",
+      "size": 4657,
+      "url": "https://api.github.com/repos/github/gitignore/git/blobs/b3ec7d5e13aa02435b3b4372b8cb22b57429924a"
+    },
+    {
+      "path": "Zig.gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0180838aed62e14ca75ddbe75f2431241232354c",
+      "size": 25,
+      "url": "https://api.github.com/repos/github/gitignore/git/blobs/0180838aed62e14ca75ddbe75f2431241232354c"
+    },
+    {
+      "path": "community/Xilinx.gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "afe5e8214f8a4bbf733a02854aea5bb878eb4dfa",
+      "size": 1388,
+      "url": "https://api.github.com/repos/github/gitignore/git/blobs/afe5e8214f8a4bbf733a02854aea5bb878eb4dfa"
+    },
+    {
+      "path": "community/embedded",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "64b639c44ff75c1019997b97e08bae78bad51337",
+      "url": "https://api.github.com/repos/github/gitignore/git/trees/64b639c44ff75c1019997b97e08bae78bad51337"
+    },
+    {
+      "path": "community/embedded/AtmelStudio.gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5dfc4696538447de780f5abea463766cce04a36a",
+      "size": 408,
+      "url": "https://api.github.com/repos/github/gitignore/git/blobs/5dfc4696538447de780f5abea463766cce04a36a"
+    },
+    {
+      "path": "ecu.test.gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fd49503014a8b9925545ba9a699807e649a82608",
+      "size": 2038,
+      "url": "https://api.github.com/repos/github/gitignore/git/blobs/fd49503014a8b9925545ba9a699807e649a82608"
+    }
+  ],
+  "truncated": false
+}

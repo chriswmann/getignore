@@ -11,7 +11,7 @@ use crate::options::Opts;
 const GITIGNORE_LIST_URL: &str =
     "https://api.github.com/repos/github/gitignore/git/trees/main?recursive=1";
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Index {
     version: u32,
     pub fetched_at: u64,
@@ -115,9 +115,11 @@ fn load_repo_tree(opts: &Opts) -> Result<String, AppError> {
     Ok(response.body_mut().read_to_string()?)
 }
 
+#[expect(clippy::unreadable_literal)]
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn index_deserialises_cache_fixture() {
@@ -131,5 +133,65 @@ mod tests {
             "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
         );
         assert_eq!(index.entries["Python.gitignore"].name, "Python");
+    }
+    #[test]
+    fn build_index_carries_metadata_across() {
+        let git_tree_response = serde_json::from_str::<GitTreeResponse>(include_str!(
+            "../tests/fixtures/trimmed-trees.json"
+        ))
+        .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
+
+        let fetched_at = 12345678;
+        let index = build_index(git_tree_response, fetched_at).unwrap();
+        assert_eq!(index.fetched_at, fetched_at);
+        assert_eq!(
+            index.source_commit,
+            "dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"
+        );
+    }
+
+    #[test]
+    fn build_index_filters_to_gitignore_blobs_and_keys_by_path() {
+        let git_tree_response = serde_json::from_str::<GitTreeResponse>(include_str!(
+            "../tests/fixtures/trimmed-trees.json"
+        ))
+        .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
+
+        let fetched_at = 12345678;
+        let index = build_index(git_tree_response, fetched_at).unwrap();
+        assert_eq!(
+            index
+                .entries
+                .get("Python.gitignore")
+                .expect("Python entry should be in test data")
+                .sha,
+            "b3ec7d5e13aa02435b3b4372b8cb22b57429924a"
+        );
+        assert_eq!(index.entries.len(), 6);
+        assert_eq!(
+            index
+                .entries
+                .get("community/embedded/AtmelStudio.gitignore")
+                .expect("AtmelStudio entry should be in test data")
+                .name,
+            "AtmelStudio"
+        );
+        assert_eq!(
+            index
+                .entries
+                .get("ecu.test.gitignore")
+                .expect("ecu.test.gitignore entry should be in test data")
+                .name,
+            "ecu.test"
+        );
+    }
+    #[test]
+    fn build_index_returns_truncated_tree_error_when_tree_is_truncated() {
+        let git_tree_response = serde_json::from_str::<GitTreeResponse>(include_str!(
+            "../tests/fixtures/truncated-trimmed-trees.json"
+        ))
+        .expect("Should be able to load truncated, trimmed trees test fixture as GitTreeResponse");
+        let output = build_index(git_tree_response, 123456);
+        assert_matches!(output, Err(AppError::TruncatedTree));
     }
 }
