@@ -1,11 +1,66 @@
+use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::BufReader;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
+use ureq::Agent;
+
 use crate::errors::AppError;
-use crate::github::{Index, build_index, load_from_github};
+use crate::github::{GitObjectKind, GitTreeEntry, GitTreeResponse, load_from_github};
 use crate::options::Opts;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Index {
+    version: u32,
+    pub fetched_at: u64,
+    pub source_commit: String,
+    pub entries: BTreeMap<String, Entry>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Entry {
+    pub name: String,
+    pub sha: String,
+}
+
+impl TryFrom<GitTreeEntry> for Entry {
+    type Error = AppError;
+    fn try_from(git_entry: GitTreeEntry) -> Result<Self, Self::Error> {
+        Ok(Self {
+            name: git_entry
+                .path
+                .file_stem()
+                .ok_or_else(|| AppError::NoLanguage(git_entry.path.clone()))?
+                .to_string_lossy()
+                .to_string(),
+            sha: git_entry.sha,
+        })
+    }
+}
+
+pub fn build_index(response: GitTreeResponse, fetched_at: u64) -> Result<Index, AppError> {
+    if response.truncated {
+        return Err(AppError::TruncatedTree);
+    }
+    let mut entries = BTreeMap::new();
+    for git_entry in response.tree {
+        if git_entry.kind == GitObjectKind::Blob
+            && git_entry.path.extension().and_then(OsStr::to_str) == Some("gitignore")
+        {
+            let path = git_entry.path.to_string_lossy().to_string();
+            let entry = Entry::try_from(git_entry)?;
+            entries.insert(path, entry);
+        }
+    }
+    Ok(Index {
+        version: 1,
+        fetched_at,
+        source_commit: response.sha,
+        entries,
+    })
+}
 
 fn save_cache(cache_file: &Path, index: &Index) -> Result<(), AppError> {
     let json = serde_json::to_string_pretty(index)?;
@@ -26,9 +81,95 @@ pub fn is_not_stale(index: &Index, ttl: Duration, now: u64) -> bool {
     now.saturating_sub(index.fetched_at) < ttl.as_secs()
 }
 
-pub fn fetch_and_cache(opts: &Opts, cache_file: &Path, now: u64) -> Result<Index, AppError> {
-    let response = load_from_github(opts)?;
+pub fn fetch_and_cache(
+    agent: &Agent,
+    opts: &Opts,
+    cache_file: &Path,
+    now: u64,
+) -> Result<Index, AppError> {
+    let response = load_from_github(agent, opts)?;
     let index = build_index(response, now)?;
     save_cache(cache_file, &index)?;
     Ok(index)
+}
+
+#[expect(clippy::unreadable_literal)]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::assert_matches;
+
+    #[test]
+    fn index_deserialises_cache_fixture() {
+        let index =
+            serde_json::from_str::<Index>(include_str!("../tests/fixtures/cache-fixture.json"))
+                .unwrap();
+        assert_eq!(index.version, 1);
+        assert_eq!(index.fetched_at, 1750765200);
+        assert_eq!(
+            index.source_commit,
+            "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+        );
+        assert_eq!(index.entries["Python.gitignore"].name, "Python");
+    }
+    #[test]
+    fn build_index_carries_metadata_across() {
+        let git_tree_response = serde_json::from_str::<GitTreeResponse>(include_str!(
+            "../tests/fixtures/trimmed-trees.json"
+        ))
+        .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
+
+        let fetched_at = 12345678;
+        let index = build_index(git_tree_response, fetched_at).unwrap();
+        assert_eq!(index.fetched_at, fetched_at);
+        assert_eq!(
+            index.source_commit,
+            "dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"
+        );
+    }
+
+    #[test]
+    fn build_index_filters_to_gitignore_blobs_and_keys_by_path() {
+        let git_tree_response = serde_json::from_str::<GitTreeResponse>(include_str!(
+            "../tests/fixtures/trimmed-trees.json"
+        ))
+        .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
+
+        let fetched_at = 12345678;
+        let index = build_index(git_tree_response, fetched_at).unwrap();
+        assert_eq!(
+            index
+                .entries
+                .get("Python.gitignore")
+                .expect("Python entry should be in test data")
+                .sha,
+            "b3ec7d5e13aa02435b3b4372b8cb22b57429924a"
+        );
+        assert_eq!(index.entries.len(), 6);
+        assert_eq!(
+            index
+                .entries
+                .get("community/embedded/AtmelStudio.gitignore")
+                .expect("AtmelStudio entry should be in test data")
+                .name,
+            "AtmelStudio"
+        );
+        assert_eq!(
+            index
+                .entries
+                .get("ecu.test.gitignore")
+                .expect("ecu.test.gitignore entry should be in test data")
+                .name,
+            "ecu.test"
+        );
+    }
+    #[test]
+    fn build_index_returns_truncated_tree_error_when_tree_is_truncated() {
+        let git_tree_response = serde_json::from_str::<GitTreeResponse>(include_str!(
+            "../tests/fixtures/truncated-trimmed-trees.json"
+        ))
+        .expect("Should be able to load truncated, trimmed trees test fixture as GitTreeResponse");
+        let output = build_index(git_tree_response, 123456);
+        assert_matches!(output, Err(AppError::TruncatedTree));
+    }
 }
