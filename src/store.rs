@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use ureq::Agent;
 
 use crate::errors::AppError;
+use crate::github::{BlobSha, CommitSha};
 use crate::github::{GitObjectKind, GitTreeEntry, GitTreeResponse, load_from_github};
 use crate::options::Opts;
 
@@ -16,13 +17,13 @@ use crate::options::Opts;
 pub struct Index {
     version: u32,
     pub fetched_at: u64,
-    pub source_commit: String,
+    pub source_commit: CommitSha,
     pub entries: BTreeMap<String, Entry>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Entry {
     pub name: String,
-    pub sha: String,
+    pub sha: BlobSha,
 }
 
 impl TryFrom<GitTreeEntry> for Entry {
@@ -62,12 +63,12 @@ pub fn build_index(response: GitTreeResponse, fetched_at: u64) -> Result<Index, 
     })
 }
 
-fn save_cache(cache_file: &Path, index: &Index) -> Result<(), AppError> {
+pub fn save_index_to_cache(cache_file: &Path, index: &Index) -> Result<(), AppError> {
     let json = serde_json::to_string_pretty(index)?;
     fs::write(cache_file, json)?;
     Ok(())
 }
-pub fn load_cache(cache_file: &Path) -> Result<Index, AppError> {
+pub fn load_index_from_cache(cache_file: &Path) -> Result<Index, AppError> {
     let file = fs::File::open(cache_file)?;
     let reader = BufReader::new(file);
     Ok(serde_json::from_reader(reader)?)
@@ -81,7 +82,7 @@ pub fn is_not_stale(index: &Index, ttl: Duration, now: u64) -> bool {
     now.saturating_sub(index.fetched_at) < ttl.as_secs()
 }
 
-pub fn fetch_and_cache(
+pub fn fetch_and_cache_index(
     agent: &Agent,
     opts: &Opts,
     cache_file: &Path,
@@ -89,8 +90,18 @@ pub fn fetch_and_cache(
 ) -> Result<Index, AppError> {
     let response = load_from_github(agent, opts)?;
     let index = build_index(response, now)?;
-    save_cache(cache_file, &index)?;
+    save_index_to_cache(cache_file, &index)?;
     Ok(index)
+}
+
+pub fn save_blob_to_cache(blob: &str, cache_file: &Path) -> Result<(), AppError> {
+    fs::write(cache_file, blob)?;
+    Ok(())
+}
+
+pub fn load_blob_from_cache(cache_file: &Path) -> Result<String, AppError> {
+    let content = fs::read_to_string(cache_file)?;
+    Ok(content)
 }
 
 #[expect(clippy::unreadable_literal)]
@@ -108,7 +119,7 @@ mod tests {
         assert_eq!(index.fetched_at, 1750765200);
         assert_eq!(
             index.source_commit,
-            "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+            CommitSha::new("a1b2c3d4e5f60718293a4b5c6d7e8f9012345678")
         );
         assert_eq!(index.entries["Python.gitignore"].name, "Python");
     }
@@ -124,7 +135,7 @@ mod tests {
         assert_eq!(index.fetched_at, fetched_at);
         assert_eq!(
             index.source_commit,
-            "dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"
+            CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46")
         );
     }
 
@@ -143,7 +154,7 @@ mod tests {
                 .get("Python.gitignore")
                 .expect("Python entry should be in test data")
                 .sha,
-            "b3ec7d5e13aa02435b3b4372b8cb22b57429924a"
+            BlobSha::new("b3ec7d5e13aa02435b3b4372b8cb22b57429924a")
         );
         assert_eq!(index.entries.len(), 6);
         assert_eq!(
