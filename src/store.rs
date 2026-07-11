@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
-use std::fs;
 use std::io::BufReader;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{fs, process};
 
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use ureq::Agent;
 
 use crate::errors::AppError;
@@ -63,10 +64,9 @@ pub fn build_index(response: GitTreeResponse, fetched_at: u64) -> Result<Index, 
     })
 }
 
-pub fn save_index_to_cache(cache_file: &Path, index: &Index) -> Result<(), AppError> {
+pub fn save_index_to_cache(index: &Index, cache_file: &Path) -> Result<(), AppError> {
     let json = serde_json::to_string_pretty(index)?;
-    fs::write(cache_file, json)?;
-    Ok(())
+    atomic_write_file(&json, cache_file)
 }
 pub fn load_index_from_cache(cache_file: &Path) -> Result<Index, AppError> {
     let file = fs::File::open(cache_file)?;
@@ -90,18 +90,37 @@ pub fn fetch_and_cache_index(
 ) -> Result<Index, AppError> {
     let response = load_from_github(agent, opts)?;
     let index = build_index(response, now)?;
-    save_index_to_cache(cache_file, &index)?;
+    if let Err(err) = save_index_to_cache(&index, cache_file) {
+        warn!("Could not cache index to {}: {err}", cache_file.display());
+    }
     Ok(index)
 }
 
 pub fn save_blob_to_cache(blob: &str, cache_file: &Path) -> Result<(), AppError> {
-    fs::write(cache_file, blob)?;
-    Ok(())
+    atomic_write_file(blob, cache_file)
 }
 
 pub fn load_blob_from_cache(cache_file: &Path) -> Result<String, AppError> {
     let content = fs::read_to_string(cache_file)?;
     Ok(content)
+}
+
+pub fn atomic_write_file(contents: &str, dest: &Path) -> Result<(), AppError> {
+    let dir = dest
+        .parent()
+        .ok_or_else(|| AppError::Disk(format!("No parent directory for {}", dest.display())))?;
+    let file_name = dest
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| AppError::Disk(format!("No file name in {}", dest.display())))?;
+    let tmp_path = dir.join(format!("{file_name}.{}.tmp", process::id()));
+
+    fs::write(&tmp_path, contents)?;
+    if let Err(err) = fs::rename(&tmp_path, dest) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(err.into());
+    }
+    Ok(())
 }
 
 #[expect(clippy::unreadable_literal)]

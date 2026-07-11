@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::Result;
 use clap::Parser;
 use directories::BaseDirs;
-use tracing::debug;
+use tracing::{debug, warn};
 use tracing_subscriber::EnvFilter;
 use ureq::Agent;
 
@@ -16,7 +16,7 @@ mod resolve;
 mod store;
 
 use errors::AppError;
-use github::{CommitSha, fetch_template};
+use github::fetch_template;
 use options::Opts;
 use store::{fetch_and_cache_index, is_not_stale, load_index_from_cache, unix_now};
 
@@ -26,7 +26,9 @@ const APP_NAME: &str = "getignore";
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+        )
         .init();
     let opts = Opts::parse();
     let base = BaseDirs::new().ok_or_else(|| AppError::Disk("Could not open BaseDirs".into()))?;
@@ -46,12 +48,20 @@ fn main() -> Result<()> {
             debug!("Serving from cache");
             index
         }
-        Ok(_) => {
+        Ok(index) => {
             debug!("Cache is stale, refetching");
-            fetch_and_cache_index(&agent, &opts, cache_file, now)?
+            match fetch_and_cache_index(&agent, &opts, cache_file, now) {
+                Ok(index) => index,
+                Err(err) => {
+                    debug!(
+                        "Cache is stale but could not reach GitHub, using cached index as fallback: {err}"
+                    );
+                    index
+                }
+            }
         }
         Err(err) => {
-            debug!("Cache unavailable ({err}), fetching");
+            warn!("Cache unavailable ({err}), fetching");
             fetch_and_cache_index(&agent, &opts, cache_file, now)?
         }
     };
@@ -61,7 +71,13 @@ fn main() -> Result<()> {
         if blob_path.exists() {
             println!("Blob path {} exists", blob_path.display());
         } else {
-            save_blob_to_cache(&template, &blob_path)?;
+            let template = fetch_template(&agent, &index.source_commit, &path)?;
+            if let Err(err) = save_blob_to_cache(&template, &blob_path) {
+                warn!(
+                    "Could not save blob to cache {}: {err}",
+                    blob_path.display()
+                );
+            }
         }
     }
     Ok(())
