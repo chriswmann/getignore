@@ -1,0 +1,47 @@
+# Query aliases: alias = target template name.
+# Targets are bare names that re-enter the exact match tier, so they
+# must name exactly one template. Lines starting with # and blank
+# lines are ignored. Aliases are matched case-insensitively.
+
+# JavaScript ecosystem (no JavaScript/TypeScript templates exist upstream)
+js = Node
+javascript = Node
+ts = Node
+typescript = Node
+nodejs = Node
+
+# .NET (no C#/F# templates exist upstream)
+c# = Dotnet
+csharp = Dotnet
+f# = Dotnet
+fsharp = Dotnet
+.net = Dotnet
+
+# C family
+cpp = C++
+cxx = C++
+objc = Objective-C
+objectivec = Objective-C
+
+# Common shorthands
+py = Python
+rb = Ruby
+rs = Rust
+golang = Go
+hs = Haskell
+kt = Kotlin
+ex = Elixir
+erl = Erlang
+clj = Clojure
+pl = Perl
+ml = OCaml
+latex = TeX
+
+# PHP projects: upstream has no PHP template; Composer is the standard fit
+php = Composer
+
+# Game engines
+unity3d = Unity
+unreal = UnrealEngine
+ue4 = UnrealEngine
+ue5 = UnrealEngine
