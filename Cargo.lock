@@ -286,6 +286,7 @@ dependencies = [
  "etcetera",
  "serde",
  "serde_json",
+ "strsim",
  "tracing",
  "tracing-subscriber",
  "ureq",
