@@ -4,10 +4,9 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Opts {
+    pub language: String,
     #[arg(short, long)]
     pub gitignore_list_url: Option<String>,
     #[arg(short, long)]
-    destination: PathBuf,
-    #[arg(short, long)]
-    language: String,
+    pub destination: Option<PathBuf>,
 }

@@ -20,7 +20,7 @@ use github::fetch_template;
 use options::Opts;
 use store::{fetch_and_cache_index, is_not_stale, load_index_from_cache, unix_now};
 
-use crate::store::save_blob_to_cache;
+use crate::store::{atomic_write_file, load_blob_from_cache, save_blob_to_cache};
 
 const APP_NAME: &str = "getignore";
 
@@ -65,20 +65,30 @@ fn main() -> Result<()> {
             fetch_and_cache_index(&agent, &opts, cache_file, now)?
         }
     };
-    for (path, entry) in index.entries {
-        let sha = entry.sha;
-        let blob_path = blob_cache_dir.join(&sha);
-        if blob_path.exists() {
-            println!("Blob path {} exists", blob_path.display());
-        } else {
-            let template = fetch_template(&agent, &index.source_commit, &path)?;
-            if let Err(err) = save_blob_to_cache(&template, &blob_path) {
-                warn!(
-                    "Could not save blob to cache {}: {err}",
-                    blob_path.display()
-                );
-            }
+    let language = opts.language;
+    let path = &language;
+    let entry = index.entries.get(path).expect("Should have python entry");
+    let sha = entry.sha.as_str();
+    let blob_path = blob_cache_dir.join(sha);
+    let template = if blob_path.exists() {
+        println!("Blob path {} exists", blob_path.display());
+        load_blob_from_cache(&blob_path)?
+    } else {
+        let template = fetch_template(&agent, &index.source_commit, path)?;
+        if let Err(err) = save_blob_to_cache(&template, &blob_path) {
+            warn!(
+                "Could not save blob to cache {}: {err}",
+                blob_path.display()
+            );
         }
+        template
+    };
+    match opts.destination {
+        Some(path) => match atomic_write_file(&template, &path) {
+            Ok(()) => debug!("template written to {}", path.display()),
+            Err(err) => warn!("Error writing template to {}: {err}", path.display()),
+        },
+        None => println!("{template}"),
     }
     Ok(())
 }
