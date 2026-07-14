@@ -1,4 +1,7 @@
-use crate::store::Index;
+use crate::{
+    github::CommitSha,
+    store::{Entry, Index},
+};
 
 #[derive(Debug)]
 pub struct Catalogue {
@@ -15,5 +18,13 @@ impl Catalogue {
             .entries
             .iter()
             .map(|(p, e)| (p.as_str(), e.name.as_str()))
+    }
+
+    pub fn entry(&self, path: &str) -> Option<&Entry> {
+        self.index.entries.get(path)
+    }
+
+    pub fn source_commit(&self) -> &CommitSha {
+        &self.index.source_commit
     }
 }

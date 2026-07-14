@@ -32,13 +32,19 @@ pub enum Resolution {
 
 /// Pure resolution logic, no I/O. Tiers are tried in order: exact
 /// (case-insensitive), alias, unique prefix, then fuzzy suggestions.
-fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
+pub fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
     let query = normalise(query);
+    let query = query.as_str();
     let candidates: Vec<(String, TemplatePath)> = catalogue
         .entries()
         .flat_map(|(path, _)| derive(path))
         .collect();
-    todo!();
+
+    exact_tier(query, catalogue)
+        .or_else(|| alias_tier(query, catalogue))
+        .or_else(|| prefix_tier(query, catalogue))
+        .or_else(|| fuzzy_tier(query, catalogue))
+        .unwrap_or(Resolution::NotFound)
 }
 
 /// Derives the match candidates (tails) for an index path, paired with the
@@ -52,17 +58,66 @@ fn derive(path: &str) -> Vec<(String, TemplatePath)> {
         .collect()
 }
 
-fn exact_match(query: &str, catalogue: &Catalogue) -> Vec<String> {
-    catalogue
+fn exact_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
+    let matched: Vec<_> = catalogue
         .entries()
-        .filter_map(|(path, name)| {
+        .filter_map(|(path, _)| {
             if query == normalise(path) {
-                Some(name.to_string())
+                Some(path.to_string())
             } else {
                 None
             }
         })
-        .collect()
+        .collect();
+    match matched.len() {
+        0 => None,
+        1 => Some(Resolution::Resolved(matched.first().unwrap().clone())),
+        _ => Some(Resolution::Ambiguous { matches: matched }),
+    }
+}
+
+fn alias_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
+    let target =
+        aliases().find_map(|(alias, target)| (normalise(alias) == query).then_some(target))?;
+    exact_tier(&normalise(target), catalogue)
+}
+
+fn prefix_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
+    catalogue.entries().find_map(|(path, _)| {
+        if path.contains(&normalise(query)) {
+            Some(Resolution::Resolved(path.to_string()))
+        } else {
+            None
+        }
+    })
+}
+
+fn fuzzy_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
+    let query = normalise(query);
+    let query = &query;
+    let matches: Vec<_> = catalogue
+        .entries()
+        .find(|(path, _)| strsim::osa_distance(query, path) < 3)
+        .into_iter()
+        .collect();
+    if matches.is_empty() {
+        None
+    } else {
+        Some(Resolution::Ambiguous {
+            matches: matches.iter().map(|(p, _)| p.to_string()).collect(),
+        })
+    }
+}
+
+/// Parsed (alias, target) pairs from the embedded aliases.txt file
+fn aliases() -> impl Iterator<Item = (&'static str, &'static str)> {
+    include_str!("aliases.txt")
+        .lines()
+        .filter(|&l| !l.starts_with('#'))
+        .filter_map(|l| {
+            l.split_once('=')
+                .map(|(alias, target)| (alias.trim(), target.trim()))
+        })
 }
 
 fn normalise(query: &str) -> String {

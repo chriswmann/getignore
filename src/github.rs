@@ -40,6 +40,17 @@ pub enum GitObjectKind {
     Commit,
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct GitCommitResponse {
+    sha: CommitSha,
+    tree: GitCommitTree,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct GitCommitTree {
+    sha: TreeSha,
+}
+
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct CommitSha(String);
 
@@ -49,13 +60,26 @@ impl Display for CommitSha {
     }
 }
 
-impl CommitSha {
-    pub fn new(sha: &str) -> Self {
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct TreeSha(String);
+
+impl Display for TreeSha {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl TreeSha {
+    #[cfg(test)]
+    pub(crate) fn new(sha: &str) -> Self {
         Self(sha.to_string())
     }
+}
 
-    pub fn as_str(&self) -> &str {
-        &self.0
+impl CommitSha {
+    #[cfg(test)]
+    pub(crate) fn new(sha: &str) -> Self {
+        Self(sha.to_string())
     }
 }
 
@@ -113,4 +137,26 @@ pub fn fetch_template(agent: &Agent, commit: &CommitSha, path: &str) -> Result<S
     let body = body.read_to_string()?;
     dbg!(&body);
     Ok(body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commit_response_keeps_commit_and_tree_shas_distinct() {
+        let response = serde_json::from_str::<GitCommitResponse>(include_str!(
+            "../tests/fixtures/commit-fixture.json"
+        ))
+        .expect("Should be able to deserialise commit test fixture");
+
+        assert_eq!(
+            response.sha,
+            CommitSha::new("7638417db6d59f3c431d3e1f261cc637155684cd"),
+        );
+        assert_eq!(
+            response.tree.sha,
+            TreeSha::new("691272480426f78a0138979dd3ce63b77f706feb"),
+        );
+    }
 }

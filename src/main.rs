@@ -1,7 +1,7 @@
 use std::fs;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::Parser;
 use directories::BaseDirs;
 use tracing::{debug, warn};
@@ -18,9 +18,14 @@ mod store;
 use errors::AppError;
 use github::fetch_template;
 use options::Opts;
+use resolve::resolve;
 use store::{fetch_and_cache_index, is_not_stale, load_index_from_cache, unix_now};
 
-use crate::store::{atomic_write_file, load_blob_from_cache, save_blob_to_cache};
+use crate::{
+    catalogue::Catalogue,
+    resolve::Resolution,
+    store::{atomic_write_file, load_blob_from_cache, save_blob_to_cache},
+};
 
 const APP_NAME: &str = "getignore";
 
@@ -31,7 +36,7 @@ fn main() -> Result<()> {
         )
         .init();
     let opts = Opts::parse();
-    let base = BaseDirs::new().ok_or_else(|| AppError::Disk("Could not open BaseDirs".into()))?;
+    let base = BaseDirs::new().ok_or(AppError::Disk("Could not open BaseDirs".into()))?;
     let cache_dir = base.cache_dir().join(APP_NAME);
     let blob_cache_dir = cache_dir.join("files/");
     fs::create_dir_all(&blob_cache_dir)?;
@@ -65,16 +70,24 @@ fn main() -> Result<()> {
             fetch_and_cache_index(&agent, &opts, cache_file, now)?
         }
     };
+    let catalogue = Catalogue::new(index);
     let language = opts.language;
     let path = &language;
-    let entry = index.entries.get(path).expect("Should have python entry");
+    let template_path = match resolve(&language, &catalogue) {
+        Resolution::Resolved(path) => path,
+        Resolution::Ambiguous { matches } => bail!("Ambiguous match: {matches:?}"),
+        Resolution::DidYouMean { best, rest } => bail!("Did you mean {best:?} or {rest:?}"),
+        Resolution::NotFound => bail!("{language} not found"),
+    };
+    let entry = catalogue.entry(&template_path).unwrap();
+    let source_commit = catalogue.source_commit();
     let sha = entry.sha.as_str();
     let blob_path = blob_cache_dir.join(sha);
     let template = if blob_path.exists() {
         println!("Blob path {} exists", blob_path.display());
         load_blob_from_cache(&blob_path)?
     } else {
-        let template = fetch_template(&agent, &index.source_commit, path)?;
+        let template = fetch_template(&agent, source_commit, path)?;
         if let Err(err) = save_blob_to_cache(&template, &blob_path) {
             warn!(
                 "Could not save blob to cache {}: {err}",
