@@ -1,9 +1,8 @@
-use std::fs;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
 use clap::Parser;
-use directories::BaseDirs;
+use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
 use tracing::{debug, warn};
 use tracing_subscriber::EnvFilter;
 use ureq::Agent;
@@ -27,8 +26,6 @@ use crate::{
     store::{atomic_write_file, load_blob_from_cache, save_blob_to_cache},
 };
 
-const APP_NAME: &str = "getignore";
-
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -36,26 +33,30 @@ fn main() -> Result<()> {
         )
         .init();
     let opts = Opts::parse();
-    let base = BaseDirs::new().ok_or(AppError::Disk("Could not open BaseDirs".into()))?;
-    let cache_dir = base.cache_dir().join(APP_NAME);
-    let blob_cache_dir = cache_dir.join("files/");
-    fs::create_dir_all(&blob_cache_dir)?;
-    let cache_file = cache_dir.join("getignore.json");
-    let cache_file = cache_file.as_path();
+    let app_strategy_args = AppStrategyArgs {
+        top_level_domain: "io".to_string(),
+        author: "chriswmann".to_string(),
+        app_name: "getignore".to_string(),
+    };
+    let strategy = choose_app_strategy(app_strategy_args).map_err(|_| {
+        AppError::Disk("etcetera app strategy could not be constructed".to_string())
+    })?;
+    let index_path = strategy.cache_dir().join("index.json");
+    let blobs_dir = strategy.cache_dir().join("files");
     let ttl = Duration::from_hours(24 * 7);
     let now = unix_now()?;
     let config = Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(10)))
         .build();
     let agent: Agent = config.into();
-    let index = match load_index_from_cache(cache_file) {
+    let index = match load_index_from_cache(&index_path) {
         Ok(index) if is_not_stale(&index, ttl, now) => {
             debug!("Serving from cache");
             index
         }
         Ok(index) => {
             debug!("Cache is stale, refetching");
-            match fetch_and_cache_index(&agent, &opts, cache_file, now) {
+            match fetch_and_cache_index(&agent, &opts, &index_path, now) {
                 Ok(index) => index,
                 Err(err) => {
                     debug!(
@@ -67,12 +68,11 @@ fn main() -> Result<()> {
         }
         Err(err) => {
             warn!("Cache unavailable ({err}), fetching");
-            fetch_and_cache_index(&agent, &opts, cache_file, now)?
+            fetch_and_cache_index(&agent, &opts, &index_path, now)?
         }
     };
     let catalogue = Catalogue::new(index);
     let language = opts.language;
-    let path = &language;
     let template_path = match resolve(&language, &catalogue) {
         Resolution::Resolved(path) => path,
         Resolution::Ambiguous { matches } => bail!("Ambiguous match: {matches:?}"),
@@ -82,12 +82,12 @@ fn main() -> Result<()> {
     let entry = catalogue.entry(&template_path).unwrap();
     let source_commit = catalogue.source_commit();
     let sha = entry.sha.as_str();
-    let blob_path = blob_cache_dir.join(sha);
+    let blob_path = blobs_dir.join(sha);
     let template = if blob_path.exists() {
         println!("Blob path {} exists", blob_path.display());
         load_blob_from_cache(&blob_path)?
     } else {
-        let template = fetch_template(&agent, source_commit, path)?;
+        let template = fetch_template(&agent, source_commit, &language)?;
         if let Err(err) = save_blob_to_cache(&template, &blob_path) {
             warn!(
                 "Could not save blob to cache {}: {err}",
