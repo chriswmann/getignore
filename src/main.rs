@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use anyhow::{Result, bail};
 use clap::Parser;
 use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
 use tracing::{debug, warn};
@@ -26,7 +25,7 @@ use crate::{
     store::{atomic_write_file, load_blob_from_cache, save_blob_to_cache},
 };
 
-fn main() -> Result<()> {
+fn main() -> Result<(), AppError> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
@@ -74,11 +73,18 @@ fn main() -> Result<()> {
     let catalogue = Catalogue::new(index);
     let language = opts.language;
     let template_path = match resolve(&language, &catalogue) {
-        Resolution::Resolved(path) => path,
-        Resolution::Ambiguous { matches } => bail!("Ambiguous match: {matches:?}"),
-        Resolution::DidYouMean { best, rest } => bail!("Did you mean {best:?} or {rest:?}"),
-        Resolution::NotFound => bail!("{language} not found"),
-    };
+        Resolution::Resolved(path) => Ok(path),
+        Resolution::Ambiguous { matches } => Err(AppError::AmbiguousLanguage {
+            language: language.clone(),
+            matches,
+        }),
+        Resolution::DidYouMean { best, rest } => Err(AppError::DidYouMean {
+            language: language.clone(),
+            best,
+            rest,
+        }),
+        Resolution::NotFound => Err(AppError::LanguageNotFound(language.clone())),
+    }?;
     let entry = catalogue.entry(&template_path).unwrap();
     let source_commit = catalogue.source_commit();
     let sha = entry.sha.as_str();

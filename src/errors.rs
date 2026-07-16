@@ -15,6 +15,11 @@ pub enum AppError {
         language: String,
         matches: Vec<String>,
     },
+    DidYouMean {
+        language: String,
+        best: String,
+        rest: Vec<String>,
+    },
     Disk(String),
     Io(io::Error),
     Network(ureq::Error),
@@ -48,6 +53,14 @@ impl Display for AppError {
             AppError::Time(err) => write!(f, "Time error: {err}"),
             AppError::Serialisation(err) => write!(f, "(De)serialisation error: {err}"),
             AppError::Parse { input, error } => write!(f, "Could not parse '{input}': {error}"),
+            AppError::DidYouMean {
+                language,
+                best,
+                rest,
+            } => write!(
+                f,
+                "Could not identify single template for {language}. Best match was {best}. Other candidates are {rest:?}",
+            ),
         }
     }
 }
