@@ -1,5 +1,6 @@
 [tasks.fetch-tree]
 description = "Fetch the github/gitignore repo tree into data/trees.json (gitignored dev data)"
+alias = "ft"
 run = """
 mkdir -p data
 curl -sS \
@@ -8,3 +9,18 @@ curl -sS \
   "https://api.github.com/repos/github/gitignore/git/trees/main?recursive=1" \
   | jq . > data/trees.json
 """
+
+[tasks.debug-run]
+description = "Run with debug log level"
+alias = "d"
+run = "RUST_LOG=debug cargo r -- haskell"
+
+[tasks.unit-tests]
+description = "Run unit tests"
+alias = "t"
+run = "cargo t"
+
+[tasks.format]
+description = "Format code"
+alias = "f"
+run = "cargo fmt --all"
