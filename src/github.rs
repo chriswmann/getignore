@@ -2,19 +2,21 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use tracing::debug;
-use ureq::{Agent, Body, http::Response};
+use ureq::Agent;
 
 use crate::errors::AppError;
-use crate::options::Opts;
 
-const GITIGNORE_LIST_URL: &str =
-    "https://api.github.com/repos/github/gitignore/git/trees/main?recursive=1";
+const MAIN_COMMIT_URL: &str = "https://api.github.com/repos/github/gitignore/commits/main";
+
+const RECURSIVE_TREE_URL: &str =
+    "https://api.github.com/repos/github/gitignore/git/trees/{}?recursive=1";
 
 const GITIGNORE_BLOB_URL: &str = "https://raw.githubusercontent.com/github/gitignore";
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GitTreeResponse {
-    pub sha: CommitSha,
+pub struct GitRecursiveTreeResponse {
+    pub source_commit: CommitSha,
+    tree_sha: TreeSha,
     url: String,
     pub tree: Vec<GitTreeEntry>,
     pub truncated: bool,
@@ -102,27 +104,30 @@ impl BlobSha {
     }
 }
 
-pub fn load_from_github(agent: &Agent, opts: &Opts) -> Result<GitTreeResponse, AppError> {
-    let tree = load_repo_tree(agent, opts)?;
-    Ok(serde_json::from_str(&tree)?)
+pub fn get_repo_data(agent: &Agent) -> Result<GitRecursiveTreeResponse, AppError> {
+    let main_commit = resolve_main_commit_reference(agent)?;
+    let tree_url = git_tree_url(&main_commit.tree.sha);
+    load_repo_tree(agent, &tree_url)
 }
 
-fn get_language_list_response(agent: &Agent, url: &str) -> Result<Response<Body>, ureq::Error> {
-    let response = agent
-        .get(url)
+fn resolve_main_commit_reference(agent: &Agent) -> Result<GitCommitResponse, AppError> {
+    let mut response = agent
+        .get(MAIN_COMMIT_URL)
         .header("User-Agent", "rust-gitignore-client")
-        .header("Accept", "application/vnd.github+json")
         .call()?;
-    Ok(response)
+    let body = response.body_mut().read_to_string()?;
+    serde_json::from_str::<GitCommitResponse>(&body)
+        .or_else(|err| Err(AppError::Serialisation(err)))
 }
 
-fn load_repo_tree(agent: &Agent, opts: &Opts) -> Result<String, AppError> {
-    let url = opts
-        .gitignore_list_url
-        .as_deref()
-        .unwrap_or(GITIGNORE_LIST_URL);
-    let mut response = get_language_list_response(agent, url)?;
-    Ok(response.body_mut().read_to_string()?)
+fn load_repo_tree(agent: &Agent, tree_url: &str) -> Result<GitRecursiveTreeResponse, AppError> {
+    let mut response = agent
+        .get(tree_url)
+        .header("User-Agent", "rust-gitignore-client")
+        .call()?;
+    let body = response.body_mut().read_to_string()?;
+    serde_json::from_str::<GitRecursiveTreeResponse>(&body)
+        .or_else(|err| Err(AppError::Serialisation(err)))
 }
 
 pub fn fetch_template(agent: &Agent, commit: &CommitSha, path: &str) -> Result<String, AppError> {
@@ -137,6 +142,10 @@ pub fn fetch_template(agent: &Agent, commit: &CommitSha, path: &str) -> Result<S
     let body = body.read_to_string()?;
     dbg!(&body);
     Ok(body)
+}
+
+fn git_tree_url(tree_sha: &TreeSha) -> String {
+    format!("https://api.github.com/repos/github/gitignore/git/trees/{tree_sha}?recursive=1")
 }
 
 #[cfg(test)]
@@ -157,6 +166,24 @@ mod tests {
         assert_eq!(
             response.tree.sha,
             TreeSha::new("691272480426f78a0138979dd3ce63b77f706feb"),
+        );
+    }
+
+    #[test]
+    fn recursive_tree_url_uses_tree_sha() {
+        let tree_sha = TreeSha::new("691272480426f78a0138979dd3ce63b77f706feb");
+
+        assert_eq!(
+            git_tree_url(&tree_sha),
+            "https://api.github.com/repos/github/gitignore/git/trees/691272480426f78a0138979dd3ce63b77f706feb?recursive=1"
+        );
+    }
+
+    #[test]
+    fn ensure_we_use_the_commit_url_for_trees() {
+        assert_eq!(
+            RECURSIVE_TREE_URL,
+            "https://api.github.com/repos/github/gitignore/git/trees/{}?recursive=1"
         );
     }
 }

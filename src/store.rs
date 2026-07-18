@@ -11,7 +11,7 @@ use ureq::Agent;
 
 use crate::errors::AppError;
 use crate::github::{BlobSha, CommitSha};
-use crate::github::{GitObjectKind, GitTreeEntry, GitTreeResponse, load_from_github};
+use crate::github::{GitObjectKind, GitRecursiveTreeResponse, GitTreeEntry, get_repo_data};
 use crate::options::Opts;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -42,7 +42,7 @@ impl TryFrom<GitTreeEntry> for Entry {
     }
 }
 
-pub fn build_index(response: GitTreeResponse, fetched_at: u64) -> Result<Index, AppError> {
+pub fn build_index(response: GitRecursiveTreeResponse, fetched_at: u64) -> Result<Index, AppError> {
     if response.truncated {
         return Err(AppError::TruncatedTree);
     }
@@ -59,7 +59,7 @@ pub fn build_index(response: GitTreeResponse, fetched_at: u64) -> Result<Index, 
     Ok(Index {
         version: 1,
         fetched_at,
-        source_commit: response.sha,
+        source_commit: response.source_commit,
         entries,
     })
 }
@@ -84,11 +84,10 @@ pub fn is_not_stale(index: &Index, ttl: Duration, now: u64) -> bool {
 
 pub fn fetch_and_cache_index(
     agent: &Agent,
-    opts: &Opts,
     cache_file: &Path,
     now: u64,
 ) -> Result<Index, AppError> {
-    let response = load_from_github(agent, opts)?;
+    let response = get_repo_data(agent)?;
     let index = build_index(response, now)?;
     if let Err(err) = save_index_to_cache(&index, cache_file) {
         warn!("Could not cache index to {}: {err}", cache_file.display());
@@ -144,7 +143,7 @@ mod tests {
     }
     #[test]
     fn build_index_carries_metadata_across() {
-        let git_tree_response = serde_json::from_str::<GitTreeResponse>(include_str!(
+        let git_tree_response = serde_json::from_str::<GitRecursiveTreeResponse>(include_str!(
             "../tests/fixtures/trimmed-trees.json"
         ))
         .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
@@ -160,7 +159,7 @@ mod tests {
 
     #[test]
     fn build_index_filters_to_gitignore_blobs_and_keys_by_path() {
-        let git_tree_response = serde_json::from_str::<GitTreeResponse>(include_str!(
+        let git_tree_response = serde_json::from_str::<GitRecursiveTreeResponse>(include_str!(
             "../tests/fixtures/trimmed-trees.json"
         ))
         .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
@@ -195,7 +194,7 @@ mod tests {
     }
     #[test]
     fn build_index_returns_truncated_tree_error_when_tree_is_truncated() {
-        let git_tree_response = serde_json::from_str::<GitTreeResponse>(include_str!(
+        let git_tree_response = serde_json::from_str::<GitRecursiveTreeResponse>(include_str!(
             "../tests/fixtures/truncated-trimmed-trees.json"
         ))
         .expect("Should be able to load truncated, trimmed trees test fixture as GitTreeResponse");

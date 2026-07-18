@@ -55,7 +55,7 @@ fn main() -> Result<(), AppError> {
         }
         Ok(index) => {
             debug!("Cache is stale, refetching");
-            match fetch_and_cache_index(&agent, &opts, &index_path, now) {
+            match fetch_and_cache_index(&agent, &index_path, now) {
                 Ok(index) => index,
                 Err(err) => {
                     debug!(
@@ -67,7 +67,7 @@ fn main() -> Result<(), AppError> {
         }
         Err(err) => {
             warn!("Cache unavailable ({err}), fetching");
-            fetch_and_cache_index(&agent, &opts, &index_path, now)?
+            fetch_and_cache_index(&agent, &index_path, now)?
         }
     };
     let catalogue = Catalogue::new(index);
