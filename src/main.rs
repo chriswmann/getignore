@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{fs, time::Duration};
 
 use clap::Parser;
 use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
@@ -42,6 +42,7 @@ fn main() -> Result<(), AppError> {
     })?;
     let index_path = strategy.cache_dir().join("index.json");
     let blobs_dir = strategy.cache_dir().join("files");
+    fs::create_dir_all(&blobs_dir)?;
     let ttl = Duration::from_hours(24 * 7);
     let now = unix_now()?;
     let config = Agent::config_builder()
