@@ -48,3 +48,7 @@ run = "cargo t"
 description = "Format code"
 alias = "f"
 run = "cargo fmt --all"
+
+[tasks.clear-cache]
+description = "Clear the .local cache"
+run = "rm -r ~/.cache/getignore"
