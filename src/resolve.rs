@@ -1,4 +1,4 @@
-use std::iter::once;
+use std::{fmt, iter::once};
 
 use crate::catalogue::Catalogue;
 
@@ -14,7 +14,19 @@ impl TemplatePath {
     }
 
     fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
+    }
+}
+
+#[derive(Debug, PartialOrd, Ord, PartialEq, Eq)]
+struct OsaResult<'a> {
+    distance: usize,
+    path: &'a str,
+}
+
+impl<'a> OsaResult<'a> {
+    fn new(distance: usize, path: &'a str) -> Self {
+        Self { distance, path }
     }
 }
 
@@ -28,6 +40,23 @@ pub enum Resolution {
     DidYouMean { best: String, rest: Vec<String> },
     /// Language not recognised, no suggestions found.
     NotFound,
+}
+
+impl fmt::Display for Resolution {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Resolved(path) => write!(f, "Found exact match: {path}"),
+            Self::Ambiguous { matches } => write!(f, "Found several matches: {matches:?}"),
+            Self::DidYouMean { best, rest } => {
+                if rest.is_empty() {
+                    write!(f, "Did you mean {best}?")
+                } else {
+                    write!(f, "Did you mean {best} or one of these: {rest:?}")
+                }
+            }
+            Self::NotFound => write!(f, "No templates matched your query"),
+        }
+    }
 }
 
 /// Pure resolution logic, no I/O. Tiers are tried in order: exact
@@ -95,16 +124,28 @@ fn prefix_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
 fn fuzzy_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
     let query = normalise(query);
     let query = &query;
-    let matches: Vec<_> = catalogue
+    let mut matches: Vec<OsaResult> = catalogue
         .entries()
-        .find(|(path, _)| strsim::osa_distance(query, path) < 3)
-        .into_iter()
+        .filter_map(
+            |(path, _)| match strsim::osa_distance(query, &normalise(path)) {
+                d if d < 3 => Some(OsaResult::new(d, path)),
+                _ => None,
+            },
+        )
         .collect();
     if matches.is_empty() {
         None
     } else {
-        Some(Resolution::Ambiguous {
-            matches: matches.iter().map(|(p, _)| p.to_string()).collect(),
+        matches.sort_unstable();
+        let best = matches
+            .first()
+            .expect("Should have a non-empty vector as we've just checked for emptiness above")
+            .path;
+        let rest = matches.iter().skip(1).map(|o| o.path.to_string()).collect();
+
+        Some(Resolution::DidYouMean {
+            best: best.to_string(),
+            rest,
         })
     }
 }
