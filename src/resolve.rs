@@ -13,6 +13,7 @@ impl TemplatePath {
         Self(path.to_string())
     }
 
+    #[cfg(test)]
     fn as_str(&self) -> &str {
         &self.0
     }
@@ -217,4 +218,9 @@ mod tests {
         let expected = vec![("rust".to_string(), TemplatePath::new("Rust.gitignore"))];
         assert_eq!(derive("Rust.gitignore"), expected);
     }
+
+    // #[test]
+    // fn exact_tier_matches_once_when_query_is_exact() {
+    //     let
+    // }
 }

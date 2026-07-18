@@ -15,17 +15,17 @@ const GITIGNORE_BLOB_URL: &str = "https://raw.githubusercontent.com/github/gitig
 
 #[derive(Debug, Deserialize)]
 struct BranchResponse {
-    commit: RepoTree,
+    commit: BranchCommitReference,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct RepoTree {
+#[derive(Debug, Deserialize)]
+struct BranchCommitReference {
     sha: CommitSha,
-    commit: Tree,
+    commit: CommitDetail,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Tree {
+#[derive(Debug, Deserialize)]
+struct CommitDetail {
     tree: TreeMetaData,
 }
 
@@ -203,10 +203,18 @@ mod tests {
     }
 
     #[test]
-    fn ensure_we_use_the_commit_url_for_trees() {
+    fn pin_recursive_tree_url() {
         assert_eq!(
             RECURSIVE_TREE_URL,
             "https://api.github.com/repos/github/gitignore/git/trees/{}?recursive=1"
+        );
+    }
+
+    #[test]
+    fn pin_main_branch_url() {
+        assert_eq!(
+            MAIN_BRANCH_URL,
+            "https://api.github.com/repos/github/gitignore/branches/main"
         );
     }
 }

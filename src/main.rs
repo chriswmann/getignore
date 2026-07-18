@@ -94,7 +94,7 @@ fn main() -> Result<(), AppError> {
         println!("Blob path {} exists", blob_path.display());
         load_blob_from_cache(&blob_path)?
     } else {
-        let template = fetch_template(&agent, source_commit, &language)?;
+        let template = fetch_template(&agent, source_commit, &template_path)?;
         if let Err(err) = save_blob_to_cache(&template, &blob_path) {
             warn!(
                 "Could not save blob to cache {}: {err}",
