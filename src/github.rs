@@ -6,51 +6,66 @@ use ureq::Agent;
 
 use crate::errors::AppError;
 
-const MAIN_COMMIT_URL: &str = "https://api.github.com/repos/github/gitignore/commits/main";
+const MAIN_BRANCH_URL: &str = "https://api.github.com/repos/github/gitignore/branches/main";
 
 const RECURSIVE_TREE_URL: &str =
     "https://api.github.com/repos/github/gitignore/git/trees/{}?recursive=1";
 
 const GITIGNORE_BLOB_URL: &str = "https://raw.githubusercontent.com/github/gitignore";
 
+#[derive(Debug, Deserialize)]
+struct BranchResponse {
+    commit: RepoTree,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GitRecursiveTreeResponse {
-    pub source_commit: CommitSha,
-    tree_sha: TreeSha,
+struct RepoTree {
+    sha: CommitSha,
+    commit: Tree,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Tree {
+    tree: TreeMetaData,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TreeMetaData {
+    sha: TreeSha,
     url: String,
-    pub tree: Vec<GitTreeEntry>,
+}
+
+#[derive(Debug)]
+pub struct RepoSnapshot {
+    pub source_commit: CommitSha,
+    pub tree: RecursiveTreeResponse,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RecursiveTreeResponse {
+    pub sha: TreeSha,
+    url: String,
+    pub tree: Vec<TreeEntry>,
     pub truncated: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GitTreeEntry {
+pub struct TreeEntry {
     pub path: PathBuf,
     mode: String,
     #[serde(rename = "type")]
-    pub kind: GitObjectKind,
+    pub kind: ObjectKind,
     pub sha: BlobSha,
     url: String,
-
     size: Option<u64>, // Only present for blobs, not for directories or trees.
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum GitObjectKind {
+pub enum ObjectKind {
     Blob,
     Tree,
     Commit,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct GitCommitResponse {
-    sha: CommitSha,
-    tree: GitCommitTree,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct GitCommitTree {
-    sha: TreeSha,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
@@ -76,6 +91,10 @@ impl TreeSha {
     pub(crate) fn new(sha: &str) -> Self {
         Self(sha.to_string())
     }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl CommitSha {
@@ -95,6 +114,7 @@ impl AsRef<Path> for BlobSha {
 }
 
 impl BlobSha {
+    #[cfg(test)]
     pub fn new(sha: &str) -> Self {
         Self(sha.to_string())
     }
@@ -104,30 +124,33 @@ impl BlobSha {
     }
 }
 
-pub fn get_repo_data(agent: &Agent) -> Result<GitRecursiveTreeResponse, AppError> {
-    let main_commit = resolve_main_commit_reference(agent)?;
-    let tree_url = git_tree_url(&main_commit.tree.sha);
-    load_repo_tree(agent, &tree_url)
+pub fn get_repo_data(agent: &Agent) -> Result<RepoSnapshot, AppError> {
+    let main_commit = resolve_main_branch_commit(agent)?;
+    let tree_url = git_tree_url(&main_commit.commit.commit.tree.sha);
+    let tree = load_repo_tree(agent, &tree_url)?;
+    let source_commit = main_commit.commit.sha;
+    Ok(RepoSnapshot {
+        source_commit,
+        tree,
+    })
 }
 
-fn resolve_main_commit_reference(agent: &Agent) -> Result<GitCommitResponse, AppError> {
+fn resolve_main_branch_commit(agent: &Agent) -> Result<BranchResponse, AppError> {
     let mut response = agent
-        .get(MAIN_COMMIT_URL)
+        .get(MAIN_BRANCH_URL)
         .header("User-Agent", "rust-gitignore-client")
         .call()?;
     let body = response.body_mut().read_to_string()?;
-    serde_json::from_str::<GitCommitResponse>(&body)
-        .or_else(|err| Err(AppError::Serialisation(err)))
+    serde_json::from_str::<BranchResponse>(&body).map_err(AppError::Serialisation)
 }
 
-fn load_repo_tree(agent: &Agent, tree_url: &str) -> Result<GitRecursiveTreeResponse, AppError> {
+fn load_repo_tree(agent: &Agent, tree_url: &str) -> Result<RecursiveTreeResponse, AppError> {
     let mut response = agent
         .get(tree_url)
         .header("User-Agent", "rust-gitignore-client")
         .call()?;
     let body = response.body_mut().read_to_string()?;
-    serde_json::from_str::<GitRecursiveTreeResponse>(&body)
-        .or_else(|err| Err(AppError::Serialisation(err)))
+    serde_json::from_str::<RecursiveTreeResponse>(&body).map_err(AppError::Serialisation)
 }
 
 pub fn fetch_template(agent: &Agent, commit: &CommitSha, path: &str) -> Result<String, AppError> {
@@ -145,7 +168,7 @@ pub fn fetch_template(agent: &Agent, commit: &CommitSha, path: &str) -> Result<S
 }
 
 fn git_tree_url(tree_sha: &TreeSha) -> String {
-    format!("https://api.github.com/repos/github/gitignore/git/trees/{tree_sha}?recursive=1")
+    RECURSIVE_TREE_URL.replace("{}", tree_sha.as_str())
 }
 
 #[cfg(test)]
@@ -153,19 +176,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn commit_response_keeps_commit_and_tree_shas_distinct() {
-        let response = serde_json::from_str::<GitCommitResponse>(include_str!(
-            "../tests/fixtures/commit-fixture.json"
+    fn branch_response_keeps_commit_and_tree_shas_distinct() {
+        let response = serde_json::from_str::<BranchResponse>(include_str!(
+            "../tests/fixtures/branch-fixture.json"
         ))
-        .expect("Should be able to deserialise commit test fixture");
+        .expect("Should be able to deserialise branch test fixture");
 
         assert_eq!(
-            response.sha,
-            CommitSha::new("7638417db6d59f3c431d3e1f261cc637155684cd"),
+            response.commit.sha,
+            CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
         );
         assert_eq!(
-            response.tree.sha,
-            TreeSha::new("691272480426f78a0138979dd3ce63b77f706feb"),
+            response.commit.commit.tree.sha,
+            TreeSha::new("28fc080a7482a2d4ba63b97a1161228692c048a2"),
         );
     }
 

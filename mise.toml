@@ -1,13 +1,37 @@
-[tasks.fetch-tree]
-description = "Fetch the github/gitignore repo tree into data/trees.json (gitignored dev data)"
-alias = "ft"
+[tasks.fetch-branch]
+description = "Fetch the github/gitignore main branch into data/branch.json (gitignored dev data) and trim it into tests/fixtures/branch-fixture.json"
+alias = "fc"
 run = """
 mkdir -p data
 curl -sS \
   -H "User-Agent: gi-dev" \
   -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/github/gitignore/git/trees/main?recursive=1" \
+  "https://api.github.com/repos/github/gitignore/branches/main" \
+  | jq . > data/branch.json
+jq '{name, commit: {sha: .commit.sha, commit: {tree: .commit.commit.tree}}}' \
+  data/branch.json > tests/fixtures/branch-fixture.json
+"""
+
+[tasks.fetch-tree]
+description = "Fetch the repo tree (by the tree SHA from data/branch.json) into data/trees.json (gitignored dev data) and trim it into the tree fixtures"
+alias = "ft"
+depends = ["fetch-branch"]
+run = """
+tree_sha=$(jq -r '.commit.commit.tree.sha' data/branch.json)
+curl -sS \
+  -H "User-Agent: gi-dev" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/github/gitignore/git/trees/${tree_sha}?recursive=1" \
   | jq . > data/trees.json
+jq '{sha, url, tree: [.tree[] | select(.path | IN(
+      ".github", ".github/CODEOWNERS",
+      "Ada.gitignore", "Python.gitignore", "Zig.gitignore",
+      "community/Xilinx.gitignore", "community/embedded",
+      "community/embedded/AtmelStudio.gitignore", "ecu.test.gitignore"
+    ))], truncated}' \
+  data/trees.json > tests/fixtures/trimmed-trees.json
+jq '{sha, url, tree: [], truncated: true}' \
+  data/trees.json > tests/fixtures/truncated-trimmed-trees.json
 """
 
 [tasks.debug-run]

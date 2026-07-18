@@ -10,9 +10,8 @@ use tracing::warn;
 use ureq::Agent;
 
 use crate::errors::AppError;
-use crate::github::{BlobSha, CommitSha};
-use crate::github::{GitObjectKind, GitRecursiveTreeResponse, GitTreeEntry, get_repo_data};
-use crate::options::Opts;
+use crate::github::{BlobSha, CommitSha, RepoSnapshot};
+use crate::github::{ObjectKind, TreeEntry, get_repo_data};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Index {
@@ -27,9 +26,9 @@ pub struct Entry {
     pub sha: BlobSha,
 }
 
-impl TryFrom<GitTreeEntry> for Entry {
+impl TryFrom<TreeEntry> for Entry {
     type Error = AppError;
-    fn try_from(git_entry: GitTreeEntry) -> Result<Self, Self::Error> {
+    fn try_from(git_entry: TreeEntry) -> Result<Self, Self::Error> {
         Ok(Self {
             name: git_entry
                 .path
@@ -42,13 +41,13 @@ impl TryFrom<GitTreeEntry> for Entry {
     }
 }
 
-pub fn build_index(response: GitRecursiveTreeResponse, fetched_at: u64) -> Result<Index, AppError> {
-    if response.truncated {
+pub fn build_index(response: RepoSnapshot, fetched_at: u64) -> Result<Index, AppError> {
+    if response.tree.truncated {
         return Err(AppError::TruncatedTree);
     }
     let mut entries = BTreeMap::new();
-    for git_entry in response.tree {
-        if git_entry.kind == GitObjectKind::Blob
+    for git_entry in response.tree.tree {
+        if git_entry.kind == ObjectKind::Blob
             && git_entry.path.extension().and_then(OsStr::to_str) == Some("gitignore")
         {
             let path = git_entry.path.to_string_lossy().to_string();
@@ -126,6 +125,7 @@ pub fn atomic_write_file(contents: &str, dest: &Path) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::github::RecursiveTreeResponse;
     use std::assert_matches;
 
     #[test]
@@ -143,13 +143,18 @@ mod tests {
     }
     #[test]
     fn build_index_carries_metadata_across() {
-        let git_tree_response = serde_json::from_str::<GitRecursiveTreeResponse>(include_str!(
+        let git_tree_response = serde_json::from_str::<RecursiveTreeResponse>(include_str!(
             "../tests/fixtures/trimmed-trees.json"
         ))
         .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
 
+        let snapshot = RepoSnapshot {
+            source_commit: CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
+            tree: git_tree_response,
+        };
+
         let fetched_at = 12345678;
-        let index = build_index(git_tree_response, fetched_at).unwrap();
+        let index = build_index(snapshot, fetched_at).unwrap();
         assert_eq!(index.fetched_at, fetched_at);
         assert_eq!(
             index.source_commit,
@@ -159,13 +164,18 @@ mod tests {
 
     #[test]
     fn build_index_filters_to_gitignore_blobs_and_keys_by_path() {
-        let git_tree_response = serde_json::from_str::<GitRecursiveTreeResponse>(include_str!(
+        let git_tree_response = serde_json::from_str::<RecursiveTreeResponse>(include_str!(
             "../tests/fixtures/trimmed-trees.json"
         ))
         .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
 
+        let snapshot = RepoSnapshot {
+            source_commit: CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
+            tree: git_tree_response,
+        };
+
         let fetched_at = 12345678;
-        let index = build_index(git_tree_response, fetched_at).unwrap();
+        let index = build_index(snapshot, fetched_at).unwrap();
         assert_eq!(
             index
                 .entries
@@ -194,11 +204,17 @@ mod tests {
     }
     #[test]
     fn build_index_returns_truncated_tree_error_when_tree_is_truncated() {
-        let git_tree_response = serde_json::from_str::<GitRecursiveTreeResponse>(include_str!(
+        let git_tree_response = serde_json::from_str::<RecursiveTreeResponse>(include_str!(
             "../tests/fixtures/truncated-trimmed-trees.json"
         ))
         .expect("Should be able to load truncated, trimmed trees test fixture as GitTreeResponse");
-        let output = build_index(git_tree_response, 123456);
+
+        let snapshot = RepoSnapshot {
+            source_commit: CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
+            tree: git_tree_response,
+        };
+
+        let output = build_index(snapshot, 123456);
         assert_matches!(output, Err(AppError::TruncatedTree));
     }
 }

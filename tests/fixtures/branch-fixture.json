@@ -1,0 +1,12 @@
+{
+  "name": "main",
+  "commit": {
+    "sha": "dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46",
+    "commit": {
+      "tree": {
+        "sha": "28fc080a7482a2d4ba63b97a1161228692c048a2",
+        "url": "https://api.github.com/repos/github/gitignore/git/trees/28fc080a7482a2d4ba63b97a1161228692c048a2"
+      }
+    }
+  }
+}
