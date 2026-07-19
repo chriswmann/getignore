@@ -139,8 +139,18 @@ fn resolve_main_branch_commit(agent: &Agent) -> Result<BranchResponse, AppError>
     let mut response = agent
         .get(MAIN_BRANCH_URL)
         .header("User-Agent", "rust-gitignore-client")
-        .call()?;
-    let body = response.body_mut().read_to_string()?;
+        .call()
+        .map_err(|source| AppError::Network {
+            context: "resolving the main branch",
+            source,
+        })?;
+    let body = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|source| AppError::Network {
+            context: "reading the main branch response",
+            source,
+        })?;
     serde_json::from_str::<BranchResponse>(&body).map_err(AppError::Serialisation)
 }
 
@@ -148,8 +158,18 @@ fn load_repo_tree(agent: &Agent, tree_url: &str) -> Result<RecursiveTreeResponse
     let mut response = agent
         .get(tree_url)
         .header("User-Agent", "rust-gitignore-client")
-        .call()?;
-    let body = response.body_mut().read_to_string()?;
+        .call()
+        .map_err(|source| AppError::Network {
+            context: "fetching the repository tree",
+            source,
+        })?;
+    let body = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|source| AppError::Network {
+            context: "reading the repository tree response",
+            source,
+        })?;
     serde_json::from_str::<RecursiveTreeResponse>(&body).map_err(AppError::Serialisation)
 }
 
@@ -159,10 +179,17 @@ pub fn fetch_template(agent: &Agent, commit: &CommitSha, path: &str) -> Result<S
     let mut response = agent
         .get(&url)
         .header("User-Agent", "rust-gitignore-client")
-        .call()?;
+        .call()
+        .map_err(|source| AppError::Network {
+            context: "fetching the template",
+            source,
+        })?;
 
     let body = response.body_mut();
-    let body = body.read_to_string()?;
+    let body = body.read_to_string().map_err(|source| AppError::Network {
+        context: "reading the template response body",
+        source,
+    })?;
     dbg!(&body);
     Ok(body)
 }
