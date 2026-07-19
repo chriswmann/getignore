@@ -49,6 +49,11 @@ description = "Format code"
 alias = "f"
 run = "cargo fmt --all"
 
+[tasks.lint]
+description = "Run clippy"
+alias = "l"
+run = "cargo clippy --bin getignore"
+
 [tasks.clear-cache]
 description = "Clear the .local cache"
 run = "rm -r ~/.cache/getignore"

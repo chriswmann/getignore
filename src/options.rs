@@ -6,7 +6,5 @@ use std::path::PathBuf;
 pub struct Opts {
     pub language: String,
     #[arg(short, long)]
-    pub gitignore_list_url: Option<String>,
-    #[arg(short, long)]
     pub destination: Option<PathBuf>,
 }
