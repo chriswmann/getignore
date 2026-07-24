@@ -20,6 +20,19 @@ pub struct Index {
     pub source_commit: CommitSha,
     pub entries: BTreeMap<String, Entry>,
 }
+
+impl Index {
+    #[cfg(test)]
+    pub fn for_tests(entries: BTreeMap<String, Entry>, source_commit: CommitSha) -> Self {
+        Self {
+            version: 234,
+            fetched_at: 345,
+            source_commit,
+            entries,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Entry {
     pub name: String,

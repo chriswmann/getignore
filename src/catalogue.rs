@@ -13,6 +13,30 @@ impl Catalogue {
         Self { index }
     }
 
+    #[cfg(test)]
+    pub fn for_tests(entries: &[(&str, &str)]) -> Self {
+        use std::collections::BTreeMap;
+
+        let source_commit = CommitSha::new("test-commit-sha");
+        let entries = entries
+            .iter()
+            .enumerate()
+            .map(|(ind, (path, name))| {
+                use crate::github::BlobSha;
+
+                (
+                    path.to_string(),
+                    Entry {
+                        name: name.to_string(),
+                        sha: BlobSha::new(&ind.to_string()),
+                    },
+                )
+            })
+            .collect::<BTreeMap<String, Entry>>();
+        let index = Index::for_tests(entries, source_commit);
+        Self { index }
+    }
+
     pub fn entries(&self) -> impl Iterator<Item = (&str, &str)> {
         self.index
             .entries

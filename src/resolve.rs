@@ -60,15 +60,27 @@ impl fmt::Display for Resolution {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct Candidate {
+    tail: String,
+    path: TemplatePath,
+}
+
+impl Candidate {
+    #[cfg(test)]
+    pub fn for_tests(tail: &str, path: TemplatePath) -> Self {
+        Self {
+            tail: tail.to_string(),
+            path,
+        }
+    }
+}
+
 /// Pure resolution logic, no I/O. Tiers are tried in order: exact
 /// (case-insensitive), alias, unique prefix, then fuzzy suggestions.
 pub fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
     let query = normalise(query);
     let query = query.as_str();
-    let candidates: Vec<(String, TemplatePath)> = catalogue
-        .entries()
-        .flat_map(|(path, _)| derive(path))
-        .collect();
 
     exact_tier(query, catalogue)
         .or_else(|| alias_tier(query, catalogue))
@@ -80,28 +92,45 @@ pub fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
 /// Derives the match candidates (tails) for an index path, paired with the
 /// verbatim key the tail resolves to. The tail is what queries are
 /// compared against; the `TemplatePath` is what gets fetched.
-fn derive(path: &str) -> Vec<(String, TemplatePath)> {
-    let normalised = normalise(path);
-    path.rmatch_indices('/')
-        .map(|(i, _)| (normalised[i + 1..].to_string(), TemplatePath::new(path)))
-        .chain(once((normalised.clone(), TemplatePath::new(path))))
-        .collect()
+fn derive(path: &str, name: &str) -> Vec<Candidate> {
+    let name = normalise(name);
+    let directories = path
+        .rsplit_once('/')
+        .map(|(dirs, _)| dirs)
+        .unwrap_or_default();
+    let segments: Vec<String> = directories
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(normalise)
+        .collect();
+
+    let s = segments.iter().rev().fold(vec![name], |mut acc, seg| {
+        let next = format!(
+            "{}/{}",
+            seg,
+            acc.last()
+                .expect("should have last element because acc was seeded with name"),
+        );
+        acc.push(next);
+        acc
+    });
+    s.into_iter()
+        .map(|tail| Candidate {
+            tail,
+            path: TemplatePath::new(path),
+        })
+        .collect::<Vec<_>>()
 }
 
 fn exact_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
     let matched: Vec<_> = catalogue
         .entries()
-        .filter_map(|(path, _)| {
-            if query == normalise(path) {
-                Some(path.to_string())
-            } else {
-                None
-            }
-        })
+        .filter(|(path, _)| query == normalise(path))
+        .map(|(path, _)| path.to_string())
         .collect();
-    match matched.len() {
-        0 => None,
-        1 => Some(Resolution::Resolved(matched.first().unwrap().clone())),
+    match matched.as_slice() {
+        [] => None,
+        [only] => Some(Resolution::Resolved(only.clone())),
         _ => Some(Resolution::Ambiguous { matches: matched }),
     }
 }
@@ -194,33 +223,60 @@ mod tests {
     }
 
     #[test]
-    fn derive_matches_multiple_tails() {
-        let path = "community/BoxLang/ColdBox.gitignore";
+    fn derive_uses_the_entry_name_and_builds_the_shortest_tails_first() {
         let expected = vec![
-            (
-                "coldbox".to_string(),
+            Candidate::for_tests(
+                "coldbox",
                 TemplatePath::new("community/BoxLang/ColdBox.gitignore"),
             ),
-            (
-                "boxlang/coldbox".to_string(),
+            Candidate::for_tests(
+                "boxlang/coldbox",
                 TemplatePath::new("community/BoxLang/ColdBox.gitignore"),
             ),
-            (
-                "community/boxlang/coldbox".to_string(),
+            Candidate::for_tests(
+                "community/boxlang/coldbox",
                 TemplatePath::new("community/BoxLang/ColdBox.gitignore"),
             ),
         ];
-        assert_eq!(derive(path), expected);
+        assert_eq!(
+            derive("community/BoxLang/ColdBox.gitignore", "ColdBox"),
+            expected
+        );
     }
 
     #[test]
-    fn derive_matches_single_tail() {
-        let expected = vec![("rust".to_string(), TemplatePath::new("Rust.gitignore"))];
-        assert_eq!(derive("Rust.gitignore"), expected);
+    fn derive_preserves_dotted_entry_names() {
+        assert_eq!(
+            derive("ecu.test.gitignore", "ecu.test"),
+            vec![Candidate::for_tests(
+                "ecu.test",
+                TemplatePath::new("ecu.test.gitignore")
+            )],
+        );
+    }
+
+    #[test]
+    fn exact_tier_matches_once_when_query_is_exact() {
+        let entries = &[
+            ("Rust.gitignore", "Rust"),
+            ("community/DM/Rustici.gitignore", "Rustici"),
+            ("community/Xilinx.gitignore", "Xilinx.gitignore"),
+        ];
+        let catalogue = Catalogue::for_tests(entries);
+        let answer = exact_tier("rust", &catalogue);
+        assert_eq!(
+            answer,
+            Some(Resolution::Resolved("Rust.gitignore".to_string()))
+        );
     }
 
     // #[test]
-    // fn exact_tier_matches_once_when_query_is_exact() {
-    //     let
+    // fn _tier_matches_() {
+    //     let entries = &[
+    //         ("Rust.gitignore", "Rust"),
+    //         ("community/DM/Rustici.gitignore", "Rustici"),
+    //         ("community/Xilinx.gitignore", "Xilinx.gitignore"),
+    //     ];
+    //     let catalogue = Catalogue::for_tests(entries);
     // }
 }
