@@ -1,21 +1,20 @@
-use std::{fmt, iter::once};
+use std::fmt;
 
 use crate::catalogue::Catalogue;
 
 /// The exact index key for a template, stored verbatim (e.g.
 /// `community/BoxLang/ColdBox.gitignore`). Never rebuilt from parts:
 /// `main` uses it directly to look up the entry and fetch the blob.
-#[derive(Debug, PartialEq)]
-struct TemplatePath(String);
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd, Clone)]
+pub struct TemplatePath(String);
 
 impl TemplatePath {
     fn new(path: &str) -> Self {
         Self(path.to_string())
     }
 
-    #[cfg(test)]
-    fn as_str(&self) -> &str {
-        &self.0
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
     }
 }
 
@@ -122,10 +121,11 @@ fn derive(path: &str, name: &str) -> Vec<Candidate> {
         acc.push(next);
         acc
     });
+    let path = TemplatePath::new(path);
     s.into_iter()
         .map(|tail| Candidate {
             tail,
-            path: TemplatePath::new(path),
+            path: path.clone(),
         })
         .collect::<Vec<_>>()
 }
