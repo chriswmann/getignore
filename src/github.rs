@@ -88,7 +88,7 @@ impl Display for TreeSha {
 
 impl TreeSha {
     #[cfg(test)]
-    pub(crate) fn new(sha: &str) -> Self {
+    pub(crate) fn for_tests(sha: &str) -> Self {
         Self(sha.to_string())
     }
 
@@ -99,7 +99,7 @@ impl TreeSha {
 
 impl CommitSha {
     #[cfg(test)]
-    pub(crate) fn new(sha: &str) -> Self {
+    pub(crate) fn for_tests(sha: &str) -> Self {
         Self(sha.to_string())
     }
 }
@@ -115,7 +115,7 @@ impl AsRef<Path> for BlobSha {
 
 impl BlobSha {
     #[cfg(test)]
-    pub fn new(sha: &str) -> Self {
+    pub fn for_tests(sha: &str) -> Self {
         Self(sha.to_string())
     }
 
@@ -211,17 +211,17 @@ mod tests {
 
         assert_eq!(
             response.commit.sha,
-            CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
+            CommitSha::for_tests("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
         );
         assert_eq!(
             response.commit.commit.tree.sha,
-            TreeSha::new("28fc080a7482a2d4ba63b97a1161228692c048a2"),
+            TreeSha::for_tests("28fc080a7482a2d4ba63b97a1161228692c048a2"),
         );
     }
 
     #[test]
     fn recursive_tree_url_uses_tree_sha() {
-        let tree_sha = TreeSha::new("691272480426f78a0138979dd3ce63b77f706feb");
+        let tree_sha = TreeSha::for_tests("691272480426f78a0138979dd3ce63b77f706feb");
 
         assert_eq!(
             git_tree_url(&tree_sha),

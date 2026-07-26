@@ -81,6 +81,7 @@ impl Candidate {
 pub fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
     let query = normalise(query);
     let query = query.as_str();
+    // let candidates = candidates(catalogue);
 
     exact_tier(query, catalogue)
         .or_else(|| alias_tier(query, catalogue))

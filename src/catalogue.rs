@@ -17,7 +17,7 @@ impl Catalogue {
     pub fn for_tests(entries: &[(&str, &str)]) -> Self {
         use std::collections::BTreeMap;
 
-        let source_commit = CommitSha::new("test-commit-sha");
+        let source_commit = CommitSha::for_tests("test-commit-sha");
         let entries = entries
             .iter()
             .enumerate()
@@ -28,7 +28,7 @@ impl Catalogue {
                     path.to_string(),
                     Entry {
                         name: name.to_string(),
-                        sha: BlobSha::new(&ind.to_string()),
+                        sha: BlobSha::for_tests(&ind.to_string()),
                     },
                 )
             })

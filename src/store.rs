@@ -150,7 +150,7 @@ mod tests {
         assert_eq!(index.fetched_at, 1750765200);
         assert_eq!(
             index.source_commit,
-            CommitSha::new("a1b2c3d4e5f60718293a4b5c6d7e8f9012345678")
+            CommitSha::for_tests("a1b2c3d4e5f60718293a4b5c6d7e8f9012345678")
         );
         assert_eq!(index.entries["Python.gitignore"].name, "Python");
     }
@@ -162,7 +162,7 @@ mod tests {
         .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
 
         let snapshot = RepoSnapshot {
-            source_commit: CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
+            source_commit: CommitSha::for_tests("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
             tree: git_tree_response,
         };
 
@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(index.fetched_at, fetched_at);
         assert_eq!(
             index.source_commit,
-            CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46")
+            CommitSha::for_tests("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46")
         );
     }
 
@@ -183,7 +183,7 @@ mod tests {
         .expect("Should be able to load trimmed trees test fixture as GitTreeResponse");
 
         let snapshot = RepoSnapshot {
-            source_commit: CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
+            source_commit: CommitSha::for_tests("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
             tree: git_tree_response,
         };
 
@@ -195,7 +195,7 @@ mod tests {
                 .get("Python.gitignore")
                 .expect("Python entry should be in test data")
                 .sha,
-            BlobSha::new("b3ec7d5e13aa02435b3b4372b8cb22b57429924a")
+            BlobSha::for_tests("b3ec7d5e13aa02435b3b4372b8cb22b57429924a")
         );
         assert_eq!(index.entries.len(), 6);
         assert_eq!(
@@ -223,7 +223,7 @@ mod tests {
         .expect("Should be able to load truncated, trimmed trees test fixture as GitTreeResponse");
 
         let snapshot = RepoSnapshot {
-            source_commit: CommitSha::new("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
+            source_commit: CommitSha::for_tests("dcc0fc7bc2b5ba480cf117ad1be31bafceeaff46"),
             tree: git_tree_response,
         };
 
