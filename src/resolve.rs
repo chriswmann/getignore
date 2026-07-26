@@ -81,13 +81,20 @@ impl Candidate {
 pub fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
     let query = normalise(query);
     let query = query.as_str();
-    // let candidates = candidates(catalogue);
+    let candidates = candidates(catalogue);
 
     exact_tier(query, catalogue)
         .or_else(|| alias_tier(query, catalogue))
         .or_else(|| prefix_tier(query, catalogue))
         .or_else(|| fuzzy_tier(query, catalogue))
         .unwrap_or(Resolution::NotFound)
+}
+
+fn candidates(catalogue: &Catalogue) -> Vec<Candidate> {
+    catalogue
+        .entries()
+        .flat_map(|(path, name)| derive(path, name))
+        .collect()
 }
 
 /// Derives the match candidates (tails) for an index path, paired with the
