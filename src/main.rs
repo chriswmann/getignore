@@ -1,4 +1,4 @@
-use std::{fs, time::Duration};
+use std::{fs, io, path, process::exit, str::FromStr, time::Duration};
 
 use clap::Parser;
 use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
@@ -86,15 +86,15 @@ fn main() -> Result<(), AppError> {
         }),
         Resolution::NotFound => Err(AppError::LanguageNotFound(language.clone())),
     }?;
-    let entry = catalogue.entry(&template_path).unwrap();
+    let entry = catalogue.entry(template_path.as_str()).unwrap();
     let source_commit = catalogue.source_commit();
     let sha = entry.sha.as_str();
     let blob_path = blobs_dir.join(sha);
     let template = if blob_path.exists() {
-        println!("Blob path {} exists", blob_path.display());
+        debug!("Blob path {} exists", blob_path.display());
         load_blob_from_cache(&blob_path)?
     } else {
-        let template = fetch_template(&agent, source_commit, &template_path)?;
+        let template = fetch_template(&agent, source_commit, template_path.as_str())?;
         if let Err(err) = save_blob_to_cache(&template, &blob_path) {
             warn!(
                 "Could not save blob to cache {}: {err}",
@@ -103,12 +103,43 @@ fn main() -> Result<(), AppError> {
         }
         template
     };
-    match opts.destination {
-        Some(path) => match atomic_write_file(&template, &path) {
-            Ok(()) => debug!("template written to {}", path.display()),
-            Err(err) => warn!("Error writing template to {}: {err}", path.display()),
-        },
-        None => println!("{template}"),
-    }
+
+    let path = match opts.destination {
+        Some(path) => path,
+        None => {
+            println!("Defaulting to '.gitignore' in current directory");
+            path::PathBuf::from_str(".gitignore")?
+        }
+    };
+
+    //     if path.exists() {
+    //         match should_proceed(path.as_path()) {
+    //             Ok()
+    //         }
+    //     }
+    //
+    //     match atomic_write_file(&template, &path) {
+    //     Ok(()) => debug!("template written to {}", path.display()),
+    //     Err(err) => warn!("Error writing template to {}: {err}", path.display()),
+    //
+    //     } else {
+    //             exit(0);
+    //         }
+    // }
+    // },
     Ok(())
+}
+
+fn should_proceed(path: impl AsRef<path::Path>) -> Result<bool, AppError> {
+    let mut input = String::new();
+
+    loop {
+        input.clear();
+        if input.trim().to_lowercase() != "y" && input.trim().to_lowercase() != "n" {
+            return Ok(input == "y");
+        }
+
+        println!("Target file {path.display()} already exists. Overwrite [y/N]?");
+        io::stdin().read_line(&mut input)?;
+    }
 }

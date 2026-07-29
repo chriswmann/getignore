@@ -1,0 +1,4 @@
+# Merged with ~/.cargo/config.toml, which adds the mold linker flag for Linux.
+# Cargo concatenates rustflags arrays across config files, so both apply.
+[target.'cfg(target_os = "linux")']
+rustflags = ["-Zthreads=8"]  # nightly parallel frontend; drop this if building on stable

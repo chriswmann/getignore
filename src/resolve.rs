@@ -33,7 +33,7 @@ impl<'a> OsaResult<'a> {
 #[derive(Debug, PartialEq)]
 pub enum Resolution {
     /// Language recognised and the gitignore will be provided.
-    Resolved(String),
+    Resolved(TemplatePath),
     /// There are more than one gitignores for this language.
     Ambiguous { matches: Vec<String> },
     /// Language not recognised but one or more suggestions found. Rest is ordered best first.
@@ -45,7 +45,7 @@ pub enum Resolution {
 impl fmt::Display for Resolution {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Resolved(path) => write!(f, "Found exact match: {path}"),
+            Self::Resolved(path) => write!(f, "Found exact match: {}", path.as_str()),
             Self::Ambiguous { matches } => write!(f, "Found several matches: {matches:?}"),
             Self::DidYouMean { best, rest } => {
                 if rest.is_empty() {
@@ -138,7 +138,7 @@ fn exact_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
         .collect();
     match matched.as_slice() {
         [] => None,
-        [only] => Some(Resolution::Resolved(only.clone())),
+        [only] => Some(Resolution::Resolved(TemplatePath::new(only))),
         _ => Some(Resolution::Ambiguous { matches: matched }),
     }
 }
@@ -152,7 +152,7 @@ fn alias_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
 fn prefix_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
     catalogue.entries().find_map(|(path, _)| {
         if path.contains(&normalise(query)) {
-            Some(Resolution::Resolved(path.to_string()))
+            Some(Resolution::Resolved(TemplatePath::new(path)))
         } else {
             None
         }
@@ -274,17 +274,24 @@ mod tests {
         let answer = exact_tier("rust", &catalogue);
         assert_eq!(
             answer,
-            Some(Resolution::Resolved("Rust.gitignore".to_string()))
+            Some(Resolution::Resolved(TemplatePath::new("Rust.gitignore"))),
         );
     }
 
-    // #[test]
-    // fn _tier_matches_() {
-    //     let entries = &[
-    //         ("Rust.gitignore", "Rust"),
-    //         ("community/DM/Rustici.gitignore", "Rustici"),
-    //         ("community/Xilinx.gitignore", "Xilinx.gitignore"),
-    //     ];
-    //     let catalogue = Catalogue::for_tests(entries);
-    // }
+    #[test]
+    fn resolve_resolves_a_case_insensitive_exact_name() {
+        let expected = Resolution::Resolved(TemplatePath::new("Python.gitignore"));
+        assert_eq!(resolve("python", &test_catalogue()), expected);
+    }
+
+    fn test_catalogue() -> Catalogue {
+        let entries = [
+            ("Python.gitignore", "Python"),
+            ("Node.gitignore", "Node"),
+            ("Racket.gitignore", "Racket"),
+            ("community/Racket.gitignore", "Racket"),
+            ("community/BoxLang/ColdBox.gitignore", "ColdBox"),
+        ];
+        Catalogue::for_tests(&entries)
+    }
 }

@@ -3,6 +3,10 @@ name = "getignore"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "gi"
+path = "src/main.rs"
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 etcetera = "0.11.0"
@@ -12,3 +16,11 @@ strsim = "0.11.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 ureq = { version = "3.3.0", features = ["json"] }
+
+[profile.dev]
+# Full DWARF packing dominates link time (~25s per edit); line tables keep
+# panic backtraces useful and cut incremental rebuilds to ~1s.
+debug = "line-tables-only"
+
+[lints.clippy]
+pedantic = "warn"
