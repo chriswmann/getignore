@@ -67,6 +67,15 @@ if [ -n "$JJ_EMAIL" ]; then
   jj config set --user user.email "$JJ_EMAIL"
 fi
 
+# postCreate runs from the workspace folder with the clone already in place, so
+# this is the point at which the repo can be colocated. `jj git init --colocate`
+# exits 1 on a repo that already has .jj/, and postCreate re-runs on a rebuild,
+# hence the guard. It is non-destructive: git's history is imported as-is and
+# any uncommitted work becomes the new working-copy commit.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ ! -d .jj ]; then
+  jj git init --colocate
+fi
+
 # --- Atuin ---
 # ATUIN_NON_INTERACTIVE skips the "import your history?" prompt, which reads
 # from /dev/tty and has nothing to read during postCreate.
@@ -74,3 +83,41 @@ fi
 # History stays local to the codespace; no `atuin login` / cloud sync here.
 export ATUIN_NON_INTERACTIVE=yes
 curl --proto '=https' --tlsv1.2 -sSf https://setup.atuin.sh | bash
+
+# --- Carapace (multi-shell completions) ---
+# Release assets drop the tag's leading "v" and use Go-style arch names, so the
+# tag has to be resolved and rewritten rather than used verbatim.
+case "$(uname -m)" in
+  x86_64)  CARAPACE_ARCH=amd64 ;;
+  aarch64) CARAPACE_ARCH=arm64 ;;
+  *) echo "unsupported arch: $(uname -m)"; exit 1 ;;
+esac
+CARAPACE_TAG=$(curl -fsSL https://api.github.com/repos/carapace-sh/carapace-bin/releases/latest \
+  | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+CARAPACE_VERSION=${CARAPACE_TAG#v}
+# Flat tarball (carapace beside LICENSE, README.md); /usr/local/bin again so a
+# plain `gh codespace ssh` shell finds it.
+curl -fsSL "https://github.com/carapace-sh/carapace-bin/releases/download/${CARAPACE_TAG}/carapace-bin_${CARAPACE_VERSION}_linux_${CARAPACE_ARCH}.tar.gz" \
+  | sudo tar -xz -C /usr/local/bin carapace
+
+# Appended last, after oh-my-zsh's own compinit and atuin's block, because
+# carapace must be sourced once the completion system is initialised. Guarded so
+# a rebuild (postCreate runs again) cannot duplicate the block.
+# Optional: export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense' to fall back to
+# other shells' completions for commands carapace has no completer for.
+if ! grep -q 'carapace _carapace' "$HOME/.zshrc" 2>/dev/null; then
+  cat >> "$HOME/.zshrc" <<'EOF'
+
+# carapace completions
+autoload -U compinit && compinit
+zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
+source <(carapace _carapace)
+EOF
+fi
+if ! grep -q 'carapace _carapace' "$HOME/.bashrc" 2>/dev/null; then
+  cat >> "$HOME/.bashrc" <<'EOF'
+
+# carapace completions
+source <(carapace _carapace)
+EOF
+fi
