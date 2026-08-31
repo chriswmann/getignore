@@ -23,22 +23,21 @@ use tracing_subscriber::EnvFilter;
 use ureq::Agent;
 
 mod catalogue;
-mod errors;
+mod error;
 mod github;
-mod options;
+mod option;
 mod resolve;
 mod store;
 
-use errors::AppError;
+use error::AppError;
 use github::fetch_template;
-use options::Opts;
-use resolve::resolve;
-use store::{fetch_and_cache_index, is_not_stale, load_index_from_cache, unix_now};
+use option::Opts;
+use resolve::resolve_template_path;
+use store::unix_now;
 
 use crate::{
     catalogue::Catalogue,
-    resolve::Resolution,
-    store::{atomic_write_file, load_blob_from_cache, save_blob_to_cache},
+    store::{atomic_write_file, load_blob_from_cache, load_index, save_blob_to_cache},
 };
 
 fn main() -> Result<(), AppError> {
@@ -65,44 +64,13 @@ fn main() -> Result<(), AppError> {
         .timeout_global(Some(Duration::from_secs(10)))
         .build();
     let agent: Agent = config.into();
-    let index = match load_index_from_cache(&index_path) {
-        Ok(index) if is_not_stale(&index, ttl, now) => {
-            debug!("Serving from cache");
-            index
-        }
-        Ok(index) => {
-            debug!("Cache is stale, refetching");
-            match fetch_and_cache_index(&agent, &index_path, now) {
-                Ok(index) => index,
-                Err(err) => {
-                    debug!(
-                        "Cache is stale but could not reach GitHub, using cached index as fallback: {err}"
-                    );
-                    index
-                }
-            }
-        }
-        Err(err) => {
-            warn!("Cache unavailable ({err}), fetching");
-            fetch_and_cache_index(&agent, &index_path, now)?
-        }
-    };
+    let index = load_index(&agent, index_path, ttl, now)?;
     let catalogue = Catalogue::new(index);
     let language = opts.language;
-    let template_path = match resolve(&language, &catalogue) {
-        Resolution::Resolved(path) => Ok(path),
-        Resolution::Ambiguous { matches } => Err(AppError::AmbiguousLanguage {
-            language: language.clone(),
-            matches,
-        }),
-        Resolution::DidYouMean { best, rest } => Err(AppError::DidYouMean {
-            language: language.clone(),
-            best,
-            rest,
-        }),
-        Resolution::NotFound => Err(AppError::LanguageNotFound(language.clone())),
-    }?;
-    let entry = catalogue.entry(template_path.as_str()).unwrap();
+    let template_path = resolve_template_path(language, &catalogue)?;
+    let entry = catalogue.entry(template_path.as_str()).expect(
+        "Catalogue should contain the template path since we resolved it from the catalogue",
+    );
     let source_commit = catalogue.source_commit();
     let sha = entry.sha.as_str();
     let blob_path = blobs_dir.join(sha);

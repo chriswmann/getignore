@@ -28,10 +28,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, process};
 
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{debug, warn};
 use ureq::Agent;
 
-use crate::errors::AppError;
+use crate::error::AppError;
 use crate::github::{BlobSha, CommitSha, RepoSnapshot};
 use crate::github::{ObjectKind, TreeEntry, get_repo_data};
 
@@ -96,6 +96,37 @@ pub fn build_index(response: RepoSnapshot, fetched_at: u64) -> Result<Index, App
         source_commit: response.source_commit,
         entries,
     })
+}
+
+pub fn load_index(
+    agent: &ureq::Agent,
+    index_path: impl AsRef<Path>,
+    ttl: Duration,
+    now: u64,
+) -> Result<Index, AppError> {
+    let index = match load_index_from_cache(index_path.as_ref()) {
+        Ok(index) if is_not_stale(&index, ttl, now) => {
+            debug!("Serving from cache");
+            index
+        }
+        Ok(index) => {
+            debug!("Cache is stale, refetching");
+            match fetch_and_cache_index(agent, index_path.as_ref(), now) {
+                Ok(index) => index,
+                Err(err) => {
+                    debug!(
+                        "Cache is stale but could not reach GitHub, using cached index as fallback: {err}"
+                    );
+                    index
+                }
+            }
+        }
+        Err(err) => {
+            warn!("Cache unavailable ({err}), fetching");
+            fetch_and_cache_index(agent, index_path.as_ref(), now)?
+        }
+    };
+    Ok(index)
 }
 
 pub fn save_index_to_cache(index: &Index, cache_file: &Path) -> Result<(), AppError> {

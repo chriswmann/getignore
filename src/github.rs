@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use tracing::debug;
 use ureq::Agent;
 
-use crate::errors::AppError;
+use crate::error::AppError;
 
 const MAIN_BRANCH_URL: &str = "https://api.github.com/repos/github/gitignore/branches/main";
 

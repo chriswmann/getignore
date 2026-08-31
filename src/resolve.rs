@@ -20,6 +20,7 @@
 use std::fmt;
 
 use crate::catalogue::Catalogue;
+use crate::error::AppError;
 
 /// The exact index key for a template, stored verbatim (e.g.
 /// `community/BoxLang/ColdBox.gitignore`). Never rebuilt from parts:
@@ -94,9 +95,29 @@ impl Candidate {
     }
 }
 
+pub fn resolve_template_path(
+    language: String,
+    catalogue: &Catalogue,
+) -> Result<TemplatePath, AppError> {
+    let template_path = match resolve(&language, catalogue) {
+        Resolution::Resolved(path) => Ok(path),
+        Resolution::Ambiguous { matches } => Err(AppError::AmbiguousLanguage {
+            language: language.clone(),
+            matches,
+        }),
+        Resolution::DidYouMean { best, rest } => Err(AppError::DidYouMean {
+            language: language.clone(),
+            best,
+            rest,
+        }),
+        Resolution::NotFound => Err(AppError::LanguageNotFound(language)),
+    }?;
+    Ok(template_path)
+}
+
 /// Pure resolution logic, no I/O. Tiers are tried in order: exact
 /// (case-insensitive), alias, unique prefix, then fuzzy suggestions.
-pub fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
+fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
     let query = normalise(query);
     let query = query.as_str();
     let candidates = candidates(catalogue);
