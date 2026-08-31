@@ -2,11 +2,15 @@
 //!
 //! [`resolve`] tries four tiers in order and stops at the first that answers:
 //!
-//! 1. exact match against the normalised path,
+//! 1. exact match against the normalised path, reporting
+//!    [`Resolution::Ambiguous`] when more than one entry matches,
 //! 2. the hand-maintained alias table in `aliases.txt` (`js` -> `Node`), which
 //!    rewrites the query and retries the exact tier,
-//! 3. substring match against the path,
-//! 4. fuzzy match by `strsim::osa_distance`, within a distance of three.
+//! 3. substring match: the first entry whose path contains the query wins.
+//!    Only the query is normalised here, not the path, so this tier is
+//!    case-sensitive against the repository's own casing, and it neither
+//!    requires the match to be unique nor reports ambiguity,
+//! 4. fuzzy match by `strsim::osa_distance`, within a distance of two.
 //!
 //! The fuzzy tier returns [`Resolution::DidYouMean`] with the candidates
 //! ordered best first and leaves the decision to the caller, so a typo
@@ -116,7 +120,7 @@ pub fn resolve_template_path(
 }
 
 /// Pure resolution logic, no I/O. Tiers are tried in order: exact
-/// (case-insensitive), alias, unique prefix, then fuzzy suggestions.
+/// (case-insensitive), alias, substring, then fuzzy suggestions.
 fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
     let query = normalise(query);
     let query = query.as_str();
