@@ -212,7 +212,6 @@ pub fn fetch_template(agent: &Agent, commit: &CommitSha, path: &str) -> Result<S
         context: "reading the template response body",
         source,
     })?;
-    dbg!(&body);
     Ok(body)
 }
 
