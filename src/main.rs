@@ -104,22 +104,16 @@ fn main() -> Result<(), AppError> {
         template
     };
 
-    let path = match opts.destination {
-        Some(path) => path,
-        None => {
-            println!("Defaulting to '.gitignore' in current directory");
-            path::PathBuf::from(".gitignore")
-        }
-    };
-
+    let path = opts
+        .destination
+        .unwrap_or(path::PathBuf::from(".gitignore"));
     if path.exists() && !should_proceed(path.as_path())? {
         println!("Exiting without saving template.");
         exit(0);
-    } else {
-        match atomic_write_file(&template, &path) {
-            Ok(()) => debug!("template written to {}", path.display()),
-            Err(err) => warn!("Error writing template to {}: {err}", path.display()),
-        }
+    }
+    match atomic_write_file(&template, &path) {
+        Ok(()) => debug!("template written to {}", path.display()),
+        Err(err) => warn!("Error writing template to {}: {err}", path.display()),
     }
     Ok(())
 }
@@ -141,7 +135,7 @@ fn should_proceed(path: impl AsRef<path::Path>) -> Result<bool, AppError> {
         match input.as_str() {
             "y" => return Ok(true),
             "n" => return Ok(false),
-            _ => continue,
+            _ => {}
         }
     }
 }
