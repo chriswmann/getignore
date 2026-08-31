@@ -1,3 +1,17 @@
+//! The crate's error type.
+//!
+//! [`AppError`] ariants that wrap another error return it from `source`,
+//! keeping the underlying errors reachable to anything walking the chain;
+//! message-only variants return `None`.
+//!
+//! [`AppError::Network`] carries a `&'static str` saying what was being
+//! attempted, because `ureq`'s own errors do not identify the failed request.
+//! That is also why there is deliberately no `From<ureq::Error>` impl: every
+//! network call has to supply its context.
+//!
+//! `From` impls do exist for `io::Error`, `serde_json::Error` and
+//! `SystemTimeError`, which carry enough of their own detail.
+
 use std::error::Error;
 use std::fmt::{self, Display};
 use std::io;

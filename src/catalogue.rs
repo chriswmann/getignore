@@ -1,3 +1,11 @@
+//! The set of templates available to resolve a query against.
+//!
+//! A read-only view over a loaded [`Index`]. It exists so that
+//! [`mod@crate::resolve`] can iterate `(path, name)` pairs without being passed the
+//! store's own types or any means of doing I/O, in order to keep resolution
+//! a pure function. Lookup by path and the index's source commit are exposed
+//! for the caller that goes on to fetch the template.
+
 use crate::{
     github::CommitSha,
     store::{Entry, Index},

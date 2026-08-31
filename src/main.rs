@@ -1,3 +1,19 @@
+//! `gi`: fetch a `.gitignore` template from the `github/gitignore` repository.
+//!
+//! Given a language name, resolves it against a cached index of the
+//! repository's templates and writes the matching template to `./.gitignore`,
+//! or to the path given by `-d/--destination`.
+//!
+//! The flow is: parse [`Opts`], locate the cache directory, load or refresh the
+//! template index, wrap it in a [`Catalogue`], [`resolve()`] the query to a
+//! template path, read that template from the blob cache or fetch it, then
+//! write it out.
+//!
+//! Both the index and the individual templates are cached, so repeat runs are
+//! fast and work offline. A stale index that cannot be refreshed is used as a
+//! fallback rather than failing the run. Anything unrecoverable surfaces as an
+//! [`AppError`].
+
 use std::{fs, io, path, process::exit, time::Duration};
 
 use clap::Parser;

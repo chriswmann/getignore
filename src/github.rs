@@ -1,3 +1,25 @@
+//! HTTP client for the `github/gitignore` repository.
+//!
+//! Three requests, in the order the app uses them:
+//!
+//! 1. `/repos/github/gitignore/branches/main`, to find where `main` currently
+//!    points. The branch endpoint is used in preference to the commits
+//!    endpoint because it states the intent: "where is this branch now?".
+//! 2. The recursive Git Trees API, addressed by the *tree* SHA from that
+//!    response, listing every file in the repository in one request.
+//! 3. `raw.githubusercontent.com`, addressed by the commit SHA, for an
+//!    individual template.
+//!
+//! Keeping those two SHAs apart is why [`CommitSha`], [`TreeSha`] and
+//! [`BlobSha`] are separate newtypes rather than `String`s. The tree SHA
+//! addresses the Trees API and nothing else; the commit SHA is what gets
+//! persisted as the index's source and interpolated into raw template URLs.
+//! The blob SHA is used for content-addressed caching of the templates.
+//! All three URL shape invariants are covered by the tests below.
+//!
+//! This module issues requests and deserialises responses. It holds no cache
+//! policy and never touches the filesystem.
+
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};

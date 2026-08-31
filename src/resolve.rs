@@ -1,3 +1,22 @@
+//! Query resolution to identify templates. No IO.
+//!
+//! [`resolve`] tries four tiers in order and stops at the first that answers:
+//!
+//! 1. exact match against the normalised path,
+//! 2. the hand-maintained alias table in `aliases.txt` (`js` -> `Node`), which
+//!    rewrites the query and retries the exact tier,
+//! 3. substring match against the path,
+//! 4. fuzzy match by `strsim::osa_distance`, within a distance of three.
+//!
+//! The fuzzy tier returns [`Resolution::DidYouMean`] with the candidates
+//! ordered best first and leaves the decision to the caller, so a typo
+//! won't silently fetch the wrong template.
+//!
+//! Normalising means lowercasing and stripping any `.gitignore` suffix, and is
+//! applied to both sides of every comparison. [`TemplatePath`] carries the
+//! verbatim index key rather than the normalised form, so the subsequent fetch
+//! uses the repository's own casing.
+
 use std::fmt;
 
 use crate::catalogue::Catalogue;

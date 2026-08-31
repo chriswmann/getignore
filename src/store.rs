@@ -1,3 +1,25 @@
+//! The on-disk cache: the template index, and the cached template blobs.
+//!
+//! The [`Index`] maps each template's verbatim repository path to its name
+//! and blob SHA; it is built from a [`RepoSnapshot`] by [`build_index`] and
+//! stored as JSON, with its schema pinned by
+//! `tests/fixtures/cache-fixture.json`. Each fetched template is
+//! cached in its own file, using its blob SHA as the name, i.e. the template
+//! cache content is addressed: an entry is valid exactly when
+//! the SHA the index returns is present on disk, so there is no last-modified
+//! comparison to get wrong.
+//!
+//! Index freshness is a TTL against [`Index::fetched_at`], tested by
+//! [`is_not_stale`]. The caller owns the TTL and supplies `now`.
+//!
+//! Every function takes the path it should act on as a `&Path` rather than
+//! deriving one. Path policy therefore lives with the caller, and the tests can
+//! point these functions at a temporary directory.
+//!
+//! All writes go through [`atomic_write_file`], which writes to a sibling
+//! temporary file and renames over the destination, so an interrupted run
+//! cannot leave a half-written cache entry or `.gitignore` behind.
+
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::io::BufReader;
