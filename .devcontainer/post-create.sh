@@ -37,6 +37,36 @@ fi
 # bootstrapping lazy.nvim + treesitter parsers interactively.
 nvim --headless "+Lazy! sync" +qa || true
 
+# --- Jujutsu (jj) ---
+# There is no apt package, so take the statically linked musl build from the
+# latest GitHub release. The release assets carry the version in their names, so
+# /releases/latest/download/<asset> cannot be used; resolve the tag first. Like
+# the nightly toolchain and nvim stable above, this is undated: a rebuilt
+# container gets whatever is current.
+case "$(uname -m)" in
+  x86_64)  JJ_TARGET=x86_64-unknown-linux-musl ;;
+  aarch64) JJ_TARGET=aarch64-unknown-linux-musl ;;
+  *) echo "unsupported arch: $(uname -m)"; exit 1 ;;
+esac
+JJ_TAG=$(curl -fsSL https://api.github.com/repos/jj-vcs/jj/releases/latest \
+  | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+# The tarball is flat (./jj alongside ./LICENSE, ./README.md), so pull out just
+# the binary, into /usr/local/bin for the same PATH reason as nvim above.
+curl -fsSL "https://github.com/jj-vcs/jj/releases/download/${JJ_TAG}/jj-${JJ_TAG}-${JJ_TARGET}.tar.gz" \
+  | sudo tar -xz -C /usr/local/bin ./jj
+
+# jj reads its own config, never ~/.gitconfig, so commits would be authored by
+# "(no name configured)". Seed it from git's identity, which Codespaces fills in
+# from the GitHub account.
+JJ_NAME=$(git config --get user.name || true)
+JJ_EMAIL=$(git config --get user.email || true)
+if [ -n "$JJ_NAME" ]; then
+  jj config set --user user.name "$JJ_NAME"
+fi
+if [ -n "$JJ_EMAIL" ]; then
+  jj config set --user user.email "$JJ_EMAIL"
+fi
+
 # --- Atuin ---
 # ATUIN_NON_INTERACTIVE skips the "import your history?" prompt, which reads
 # from /dev/tty and has nothing to read during postCreate.
