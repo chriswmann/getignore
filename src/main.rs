@@ -14,7 +14,8 @@
 //! fallback rather than failing the run. Anything unrecoverable surfaces as an
 //! [`AppError`].
 
-use std::{fs, io, path, process::exit, time::Duration};
+use std::{fs, path, process::exit, time::Duration};
+use std::io::{self, Write};
 
 use clap::Parser;
 use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
@@ -106,10 +107,11 @@ fn should_proceed(path: impl AsRef<path::Path>) -> Result<bool, AppError> {
     let mut input = String::new();
 
     loop {
-        println!(
-            "Target file {} already exists. Overwrite [y/N]?",
+        print!(
+            "Target file {} already exists. Overwrite [y/N]? ",
             path.as_ref().display()
         );
+        io::stdout().flush().expect("Should be able to flush stdout");
         input.clear();
         io::stdin().read_line(&mut input)?;
         input = input.trim().to_lowercase();
