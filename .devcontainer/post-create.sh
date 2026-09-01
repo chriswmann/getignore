@@ -159,6 +159,15 @@ function zvm_after_init() {
   eval "$(atuin init zsh)"
 }
 
+# ~/.local/bin, where a user-level installer drops binaries. The image already
+# adds it in /etc/zsh/zshrc, but only for interactive shells and only appended,
+# so a same-named binary earlier in PATH would win. Prepend it here instead,
+# guarded against a second copy.
+case ":$PATH:" in
+*":$HOME/.local/bin:"*) ;;
+*) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+
 # carapace completions
 autoload -U compinit && compinit
 zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
@@ -167,6 +176,12 @@ EOF
 fi
 if ! grep -q 'carapace _carapace' "$HOME/.bashrc" 2>/dev/null; then
   cat >>"$HOME/.bashrc" <<'EOF'
+
+# ~/.local/bin (see the note in ~/.zshrc)
+case ":$PATH:" in
+*":$HOME/.local/bin:"*) ;;
+*) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
 
 # carapace completions
 source <(carapace _carapace)
