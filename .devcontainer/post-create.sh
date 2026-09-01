@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+# --- Resolving "the latest release" without the REST API ---
+# api.github.com allows unauthenticated callers 60 requests/hour per IP, and a
+# codespace shares its egress IP with every other codespace on the host, so
+# /repos/<repo>/releases/latest intermittently answers 403. Under `set -e` that
+# aborted this script partway through, leaving jj, atuin and carapace
+# uninstalled. There is no token to authenticate with here (Codespaces does
+# not put GITHUB_TOKEN in the container env and gh is not in this image), so use
+# github.com's redirect from /releases/latest to /releases/tag/<tag> instead: it
+# carries the same answer and is not subject to the API rate limit.
+latest_tag() {
+  local url
+  url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest")
+  printf '%s\n' "${url##*/}"
+}
+
 # --- build/runtime deps LazyVim wants (treesitter compiler, telescope tools) ---
 # kitty-terminfo carries /usr/share/terminfo/x/xterm-kitty (it is not in
 # ncurses-term). `gh codespace ssh` passes the local TERM straight through, so
@@ -58,8 +73,7 @@ aarch64) JJ_TARGET=aarch64-unknown-linux-musl ;;
   exit 1
   ;;
 esac
-JJ_TAG=$(curl -fsSL https://api.github.com/repos/jj-vcs/jj/releases/latest |
-  grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+JJ_TAG=$(latest_tag jj-vcs/jj)
 # The tarball is flat (./jj alongside ./LICENSE, ./README.md), so pull out just
 # the binary, into /usr/local/bin for the same PATH reason as nvim above.
 curl -fsSL "https://github.com/jj-vcs/jj/releases/download/${JJ_TAG}/jj-${JJ_TAG}-${JJ_TARGET}.tar.gz" |
@@ -107,13 +121,21 @@ aarch64) CARAPACE_ARCH=arm64 ;;
   exit 1
   ;;
 esac
-CARAPACE_TAG=$(curl -fsSL https://api.github.com/repos/carapace-sh/carapace-bin/releases/latest |
-  grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+CARAPACE_TAG=$(latest_tag carapace-sh/carapace-bin)
 CARAPACE_VERSION=${CARAPACE_TAG#v}
 # Flat tarball (carapace beside LICENSE, README.md); /usr/local/bin again so a
 # plain `gh codespace ssh` shell finds it.
 curl -fsSL "https://github.com/carapace-sh/carapace-bin/releases/download/${CARAPACE_TAG}/carapace-bin_${CARAPACE_VERSION}_linux_${CARAPACE_ARCH}.tar.gz" |
   sudo tar -xz -C /usr/local/bin carapace
+
+# --- zsh-vi-mode (vi keybindings on the command line) ---
+# The oh-my-zsh install here only ships the bundled `vi-mode` plugin; this is
+# jeffreytse/zsh-vi-mode, which is what the local machine uses — proper mode
+# tracking, a cursor that changes shape, surround and text objects.
+ZVM_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-vi-mode"
+if [ ! -d "$ZVM_DIR" ]; then
+  git clone --depth 1 https://github.com/jeffreytse/zsh-vi-mode "$ZVM_DIR"
+fi
 
 # Appended last, after oh-my-zsh's own compinit and atuin's block, because
 # carapace must be sourced once the completion system is initialised. Guarded so
@@ -121,7 +143,21 @@ curl -fsSL "https://github.com/carapace-sh/carapace-bin/releases/download/${CARA
 # Optional: export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense' to fall back to
 # other shells' completions for commands carapace has no completer for.
 if ! grep -q 'carapace _carapace' "$HOME/.zshrc" 2>/dev/null; then
+  # zsh-vi-mode rebinds the whole keymap when it initialises (at the first
+  # prompt, after ~/.zshrc has finished), wiping bindings made before it —
+  # atuin's ctrl-r among them. So delete the `eval "$(atuin init zsh)"` the
+  # atuin installer appended above and re-add it inside zvm_after_init, which
+  # runs after that rebind. Same reason the local ~/.zshrc does this.
+  sed -i '/atuin init zsh/d' "$HOME/.zshrc"
   cat >>"$HOME/.zshrc" <<'EOF'
+
+# vi keybindings
+source "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-vi-mode/zsh-vi-mode.plugin.zsh"
+
+# Anything that binds keys must run here, after zsh-vi-mode's own rebind.
+function zvm_after_init() {
+  eval "$(atuin init zsh)"
+}
 
 # carapace completions
 autoload -U compinit && compinit
