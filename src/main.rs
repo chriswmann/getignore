@@ -14,8 +14,8 @@
 //! fallback rather than failing the run. Anything unrecoverable surfaces as an
 //! [`AppError`].
 
-use std::{fs, path, process::exit, time::Duration};
 use std::io::{self, Write};
+use std::{fs, path, process::exit, time::Duration};
 
 use clap::Parser;
 use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
@@ -89,9 +89,7 @@ fn main() -> Result<(), AppError> {
         template
     };
 
-    let path = opts
-        .destination
-        .unwrap_or(path::PathBuf::from(".gitignore"));
+    let path = opts.destination;
     if path.exists() && !should_proceed(path.as_path())? {
         println!("Exiting without saving template.");
         exit(0);
@@ -111,7 +109,9 @@ fn should_proceed(path: impl AsRef<path::Path>) -> Result<bool, AppError> {
             "Target file {} already exists. Overwrite [y/N]? ",
             path.as_ref().display()
         );
-        io::stdout().flush().expect("Should be able to flush stdout");
+        io::stdout()
+            .flush()
+            .expect("Should be able to flush stdout");
         input.clear();
         io::stdin().read_line(&mut input)?;
         input = input.trim().to_lowercase();

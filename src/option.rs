@@ -12,6 +12,6 @@ use std::path::PathBuf;
 #[command(version, about, long_about = None)]
 pub struct Opts {
     pub language: String,
-    #[arg(short, long)]
-    pub destination: Option<PathBuf>,
+    #[arg(default_value = "gitignore", short, long)]
+    pub destination: PathBuf,
 }
