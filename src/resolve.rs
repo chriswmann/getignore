@@ -99,6 +99,19 @@ impl Candidate {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct NormalisedQuery {
+    query: String,
+}
+
+impl NormalisedQuery {
+    fn new(query: &str) -> Self {
+        Self {
+            query: normalise(query),
+        }
+    }
+}
+
 pub fn resolve_template_path(
     language: String,
     catalogue: &Catalogue,
@@ -174,10 +187,10 @@ fn derive(path: &str, name: &str) -> Vec<Candidate> {
         .collect::<Vec<_>>()
 }
 
-fn exact_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
+fn exact_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     let matched: Vec<_> = catalogue
         .entries()
-        .filter(|(path, _)| query == normalise(path))
+        .filter(|(path, _)| query == path)
         .map(|(path, _)| path.to_string())
         .collect();
     match matched.as_slice() {
@@ -187,15 +200,15 @@ fn exact_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
     }
 }
 
-fn alias_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
+fn alias_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     let target =
-        aliases().find_map(|(alias, target)| (normalise(alias) == query).then_some(target))?;
+        aliases().find_map(|(alias, target)| (alias == query).then_some(target))?;
     exact_tier(&normalise(target), catalogue)
 }
 
-fn prefix_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
+fn prefix_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     catalogue.entries().find_map(|(path, _)| {
-        if path.contains(&normalise(query)) {
+        if path.contains(&query) {
             Some(Resolution::Resolved(TemplatePath::new(path)))
         } else {
             None
@@ -203,8 +216,7 @@ fn prefix_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
     })
 }
 
-fn fuzzy_tier(query: &str, catalogue: &Catalogue) -> Option<Resolution> {
-    let query = normalise(query);
+fn fuzzy_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     let query = &query;
     let mut matches: Vec<OsaResult> = catalogue
         .entries()
@@ -243,11 +255,12 @@ fn aliases() -> impl Iterator<Item = (&'static str, &'static str)> {
         })
 }
 
-fn normalise(query: &str) -> String {
-    match query.strip_suffix(".gitignore") {
+fn normalise(query: &str) -> NormalisedQuery {
+    let normalised_query = match query.strip_suffix(".gitignore") {
         Some(name) => name.to_lowercase(),
         None => query.to_lowercase(),
-    }
+    };
+    NormalisedQuery::new(normalised_query)
 }
 
 #[cfg(test)]
