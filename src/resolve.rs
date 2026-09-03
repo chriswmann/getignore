@@ -110,6 +110,10 @@ impl NormalisedQuery {
             query: normalise(query),
         }
     }
+
+    fn as_str(&self) -> &str {
+        self.query.as_str()
+    }
 }
 
 pub fn resolve_template_path(
@@ -181,7 +185,7 @@ fn derive(path: &str, name: &str) -> Vec<Candidate> {
     let path = TemplatePath::new(path);
     s.into_iter()
         .map(|tail| Candidate {
-            tail,
+            tail.as_str(),
             path: path.clone(),
         })
         .collect::<Vec<_>>()
@@ -190,7 +194,7 @@ fn derive(path: &str, name: &str) -> Vec<Candidate> {
 fn exact_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     let matched: Vec<_> = catalogue
         .entries()
-        .filter(|(path, _)| query == path)
+        .filter(|(path, _)| query == normalise(path))
         .map(|(path, _)| path.to_string())
         .collect();
     match matched.as_slice() {
@@ -202,13 +206,13 @@ fn exact_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolutio
 
 fn alias_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     let target =
-        aliases().find_map(|(alias, target)| (alias == query).then_some(target))?;
-    exact_tier(&normalise(target), catalogue)
+        aliases().find_map(|(alias, target)| (alias == normalise(query).as_str()).then_some(target))?;
+    exact_tier(normalise(target), catalogue)
 }
 
 fn prefix_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     catalogue.entries().find_map(|(path, _)| {
-        if path.contains(&query) {
+        if path.contains(&query.as_str()) {
             Some(Resolution::Resolved(TemplatePath::new(path)))
         } else {
             None
@@ -260,7 +264,7 @@ fn normalise(query: &str) -> NormalisedQuery {
         Some(name) => name.to_lowercase(),
         None => query.to_lowercase(),
     };
-    NormalisedQuery::new(normalised_query)
+    NormalisedQuery::new(&normalised_query)
 }
 
 #[cfg(test)]
