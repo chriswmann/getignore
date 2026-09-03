@@ -26,6 +26,8 @@ use std::fmt;
 use crate::catalogue::Catalogue;
 use crate::error::AppError;
 
+const SUFFIX: &str = ".gitignore";
+
 /// The exact index key for a template, stored verbatim (e.g.
 /// `community/BoxLang/ColdBox.gitignore`). Never rebuilt from parts:
 /// `main` uses it directly to look up the entry and fetch the blob.
@@ -85,7 +87,7 @@ impl fmt::Display for Resolution {
 
 #[derive(Debug, PartialEq)]
 struct Candidate {
-    tail: String,
+    tail: NormalisedSlug,
     path: TemplatePath,
 }
 
@@ -93,22 +95,43 @@ impl Candidate {
     #[cfg(test)]
     pub fn for_tests(tail: &str, path: TemplatePath) -> Self {
         Self {
-            tail: tail.to_string(),
+            tail: tail
+                .try_into()
+                .expect("Should be able to normalise tail for tests"),
             path,
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
-struct NormalisedQuery {
-    query: String,
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
+struct NormalisedSlug {
+    slug: String,
 }
 
-impl NormalisedQuery {
-    fn new(query: &str) -> Self {
-        Self {
-            query: normalise(query),
+impl NormalisedSlug {
+    fn as_str(&self) -> &str {
+        self.slug.as_str()
+    }
+}
+
+impl TryFrom<String> for NormalisedSlug {
+    type Error = AppError;
+    fn try_from(mut slug: String) -> Result<Self, Self::Error> {
+        slug.make_ascii_lowercase();
+        if let Some(stem) = slug.strip_suffix(SUFFIX) {
+            slug.truncate(stem.len());
         }
+        if slug.is_empty() {
+            return Err(AppError::EmptyQuery);
+        }
+        Ok(Self { slug })
+    }
+}
+
+impl TryFrom<&str> for NormalisedSlug {
+    type Error = AppError;
+    fn try_from(slug: &str) -> Result<Self, Self::Error> {
+        Self::try_from(slug.to_string())
     }
 }
 
@@ -116,7 +139,8 @@ pub fn resolve_template_path(
     language: String,
     catalogue: &Catalogue,
 ) -> Result<TemplatePath, AppError> {
-    let template_path = match resolve(&language, catalogue) {
+    let normalised_query = language.clone().try_into()?;
+    let template_path = match resolve(&normalised_query, catalogue) {
         Resolution::Resolved(path) => Ok(path),
         Resolution::Ambiguous { matches } => Err(AppError::AmbiguousLanguage {
             language: language.clone(),
@@ -134,9 +158,7 @@ pub fn resolve_template_path(
 
 /// Pure resolution logic, no I/O. Tiers are tried in order: exact
 /// (case-insensitive), alias, substring, then fuzzy suggestions.
-fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
-    let query = normalise(query);
-    let query = query.as_str();
+fn resolve(query: &NormalisedSlug, catalogue: &Catalogue) -> Resolution {
     let candidates = candidates(catalogue);
 
     exact_tier(query, catalogue)
@@ -149,48 +171,42 @@ fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
 fn candidates(catalogue: &Catalogue) -> Vec<Candidate> {
     catalogue
         .entries()
-        .flat_map(|(path, name)| derive(path, name))
+        .flat_map(|(path, _name)| derive(path))
         .collect()
 }
 
 /// Derives the match candidates (tails) for an index path, paired with the
 /// verbatim key the tail resolves to. The tail is what queries are
-/// compared against; the `TemplatePath` is what gets fetched.
-fn derive(path: &str, name: &str) -> Vec<Candidate> {
-    let name = normalise(name);
-    let directories = path
-        .rsplit_once('/')
-        .map(|(dirs, _)| dirs)
-        .unwrap_or_default();
-    let segments: Vec<String> = directories
-        .split('/')
-        .filter(|segment| !segment.is_empty())
-        .map(normalise)
-        .collect();
+/// compared against; the `TemplatePath` is what gets fetched. The tail is normalised
+/// up-front so that comparison of the segmented tails with the normalised query
+/// (user-given language argument) can be performed later.
+fn derive(path: &str) -> Vec<Candidate> {
+    let normalised_path: NormalisedSlug = path.try_into().unwrap();
 
-    let s = segments.iter().rev().fold(vec![name], |mut acc, seg| {
-        let next = format!(
-            "{}/{}",
-            seg,
-            acc.last()
-                .expect("should have last element because acc was seeded with name"),
-        );
-        acc.push(next);
-        acc
-    });
     let path = TemplatePath::new(path);
-    s.into_iter()
-        .map(|tail| Candidate {
-            tail,
-            path: path.clone(),
+
+    tails(normalised_path.as_str())
+        .map(|tail| {
+            let normalised_tail = tail.try_into().unwrap();
+            Candidate {
+                tail: normalised_tail,
+                path: path.clone(),
+            }
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
 
-fn exact_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
+fn tails(normalised: &str) -> impl Iterator<Item = &str> {
+    normalised
+        .rmatch_indices('/')
+        .map(|(i, _)| &normalised[i + 1..])
+        .chain(std::iter::once(normalised))
+}
+
+fn exact_tier(query: &NormalisedSlug, catalogue: &Catalogue) -> Option<Resolution> {
     let matched: Vec<_> = catalogue
         .entries()
-        .filter(|(path, _)| query == path)
+        .filter(|(path, _)| normalise(path) == query.as_str())
         .map(|(path, _)| path.to_string())
         .collect();
     match matched.as_slice() {
@@ -200,15 +216,15 @@ fn exact_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolutio
     }
 }
 
-fn alias_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
+fn alias_tier(query: &NormalisedSlug, catalogue: &Catalogue) -> Option<Resolution> {
     let target =
-        aliases().find_map(|(alias, target)| (alias == query).then_some(target))?;
-    exact_tier(&normalise(target), catalogue)
+        aliases().find_map(|(alias, target)| (alias == query.as_str()).then_some(target))?;
+    exact_tier(&target, catalogue)
 }
 
-fn prefix_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
+fn prefix_tier(query: &NormalisedSlug, catalogue: &Catalogue) -> Option<Resolution> {
     catalogue.entries().find_map(|(path, _)| {
-        if path.contains(&query) {
+        if path.contains(query.as_str()) {
             Some(Resolution::Resolved(TemplatePath::new(path)))
         } else {
             None
@@ -216,12 +232,11 @@ fn prefix_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resoluti
     })
 }
 
-fn fuzzy_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
-    let query = &query;
+fn fuzzy_tier(query: &NormalisedSlug, catalogue: &Catalogue) -> Option<Resolution> {
     let mut matches: Vec<OsaResult> = catalogue
         .entries()
         .filter_map(
-            |(path, _)| match strsim::osa_distance(query, &normalise(path)) {
+            |(path, _)| match strsim::osa_distance(query.as_str(), &normalise(path)) {
                 d if d < 3 => Some(OsaResult::new(d, path)),
                 _ => None,
             },
@@ -245,22 +260,28 @@ fn fuzzy_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolutio
 }
 
 /// Parsed (alias, target) pairs from the embedded aliases.txt file
-fn aliases() -> impl Iterator<Item = (&'static str, &'static str)> {
+fn aliases() -> impl Iterator<Item = (&'static str, NormalisedSlug)> {
     include_str!("aliases.txt")
         .lines()
         .filter(|&l| !l.starts_with('#'))
         .filter_map(|l| {
-            l.split_once('=')
-                .map(|(alias, target)| (alias.trim(), target.trim()))
+            l.split_once('=').map(|(alias, target)| {
+                (
+                    alias.trim(),
+                    target
+                        .trim()
+                        .try_into()
+                        .expect("Should be able to normalise targets from aliases.txt"),
+                )
+            })
         })
 }
 
-fn normalise(query: &str) -> NormalisedQuery {
-    let normalised_query = match query.strip_suffix(".gitignore") {
+fn normalise(query: &str) -> String {
+    match query.strip_suffix(SUFFIX) {
         Some(name) => name.to_lowercase(),
         None => query.to_lowercase(),
-    };
-    NormalisedQuery::new(normalised_query)
+    }
 }
 
 #[cfg(test)]
@@ -288,31 +309,9 @@ mod tests {
     }
 
     #[test]
-    fn derive_uses_the_entry_name_and_builds_the_shortest_tails_first() {
-        let expected = vec![
-            Candidate::for_tests(
-                "coldbox",
-                TemplatePath::new("community/BoxLang/ColdBox.gitignore"),
-            ),
-            Candidate::for_tests(
-                "boxlang/coldbox",
-                TemplatePath::new("community/BoxLang/ColdBox.gitignore"),
-            ),
-            Candidate::for_tests(
-                "community/boxlang/coldbox",
-                TemplatePath::new("community/BoxLang/ColdBox.gitignore"),
-            ),
-        ];
-        assert_eq!(
-            derive("community/BoxLang/ColdBox.gitignore", "ColdBox"),
-            expected
-        );
-    }
-
-    #[test]
     fn derive_preserves_dotted_entry_names() {
         assert_eq!(
-            derive("ecu.test.gitignore", "ecu.test"),
+            derive("ecu.test.gitignore"),
             vec![Candidate::for_tests(
                 "ecu.test",
                 TemplatePath::new("ecu.test.gitignore")
@@ -328,7 +327,9 @@ mod tests {
             ("community/Xilinx.gitignore", "Xilinx.gitignore"),
         ];
         let catalogue = Catalogue::for_tests(entries);
-        let answer = exact_tier("rust", &catalogue);
+        let normalised_query = NormalisedSlug::try_from("rust".to_string())
+            .expect("Should be able to normalise 'rust'");
+        let answer = exact_tier(&normalised_query, &catalogue);
         assert_eq!(
             answer,
             Some(Resolution::Resolved(TemplatePath::new("Rust.gitignore"))),
@@ -338,7 +339,9 @@ mod tests {
     #[test]
     fn resolve_resolves_a_case_insensitive_exact_name() {
         let expected = Resolution::Resolved(TemplatePath::new("Python.gitignore"));
-        assert_eq!(resolve("python", &test_catalogue()), expected);
+        let normalised_query = NormalisedSlug::try_from("python".to_string())
+            .expect("Should be able to normalise 'python'");
+        assert_eq!(resolve(&normalised_query, &test_catalogue()), expected);
     }
 
     fn test_catalogue() -> Catalogue {

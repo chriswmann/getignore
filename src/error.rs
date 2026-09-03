@@ -44,6 +44,7 @@ pub enum AppError {
     Serialisation(serde_json::Error),
     Time(SystemTimeError),
     TruncatedTree,
+    EmptyQuery,
 }
 
 impl Error for AppError {
@@ -90,6 +91,7 @@ impl Display for AppError {
                 f,
                 "Could not identify single template for {language}. Best match was {best}. Other candidates are {rest:?}",
             ),
+            AppError::EmptyQuery => write!(f, "No langage detected"),
         }
     }
 }
