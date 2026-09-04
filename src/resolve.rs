@@ -106,8 +106,13 @@ struct NormalisedQuery {
 
 impl NormalisedQuery {
     fn new(query: &str) -> Self {
+        let normalised_query = match query.strip_suffix(".gitignore") {
+            Some(name) => name.to_lowercase(),
+            None => query.to_lowercase(),
+        };
+
         Self {
-            query: normalise(query),
+            query: normalised_query,
         }
     }
 
@@ -120,7 +125,8 @@ pub fn resolve_template_path(
     language: String,
     catalogue: &Catalogue,
 ) -> Result<TemplatePath, AppError> {
-    let template_path = match resolve(&language, catalogue) {
+    let normalised_query = NormalisedQuery::new(&language);
+    let template_path = match resolve(&normalised_query, catalogue) {
         Resolution::Resolved(path) => Ok(path),
         Resolution::Ambiguous { matches } => Err(AppError::AmbiguousLanguage {
             language: language.clone(),
@@ -138,9 +144,7 @@ pub fn resolve_template_path(
 
 /// Pure resolution logic, no I/O. Tiers are tried in order: exact
 /// (case-insensitive), alias, substring, then fuzzy suggestions.
-fn resolve(query: &str, catalogue: &Catalogue) -> Resolution {
-    let query = normalise(query);
-    let query = query.as_str();
+fn resolve(query: &NormalisedQuery, catalogue: &Catalogue) -> Resolution {
     let candidates = candidates(catalogue);
 
     exact_tier(query, catalogue)
@@ -161,7 +165,6 @@ fn candidates(catalogue: &Catalogue) -> Vec<Candidate> {
 /// verbatim key the tail resolves to. The tail is what queries are
 /// compared against; the `TemplatePath` is what gets fetched.
 fn derive(path: &str, name: &str) -> Vec<Candidate> {
-    let name = normalise(name);
     let directories = path
         .rsplit_once('/')
         .map(|(dirs, _)| dirs)
@@ -169,7 +172,7 @@ fn derive(path: &str, name: &str) -> Vec<Candidate> {
     let segments: Vec<String> = directories
         .split('/')
         .filter(|segment| !segment.is_empty())
-        .map(normalise)
+        .map(NormalisedQuery::new)
         .collect();
 
     let s = segments.iter().rev().fold(vec![name], |mut acc, seg| {
@@ -185,16 +188,16 @@ fn derive(path: &str, name: &str) -> Vec<Candidate> {
     let path = TemplatePath::new(path);
     s.into_iter()
         .map(|tail| Candidate {
-            tail.as_str(),
+            tail: tail,
             path: path.clone(),
         })
         .collect::<Vec<_>>()
 }
 
-fn exact_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
+fn exact_tier(query: &NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     let matched: Vec<_> = catalogue
         .entries()
-        .filter(|(path, _)| query == normalise(path))
+        .filter(|(path, _)| query.as_str() == path)
         .map(|(path, _)| path.to_string())
         .collect();
     match matched.as_slice() {
@@ -204,13 +207,14 @@ fn exact_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolutio
     }
 }
 
-fn alias_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
+fn alias_tier(query: &NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     let target =
         aliases().find_map(|(alias, target)| (alias == normalise(query).as_str()).then_some(target))?;
-    exact_tier(normalise(target), catalogue)
+    let normalised_target = NormalisedQuery::new(target);
+    exact_tier(&normalised_target, catalogue)
 }
 
-fn prefix_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
+fn prefix_tier(query: &NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     catalogue.entries().find_map(|(path, _)| {
         if path.contains(&query.as_str()) {
             Some(Resolution::Resolved(TemplatePath::new(path)))
@@ -220,12 +224,12 @@ fn prefix_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resoluti
     })
 }
 
-fn fuzzy_tier(query: NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
+fn fuzzy_tier(query: &NormalisedQuery, catalogue: &Catalogue) -> Option<Resolution> {
     let query = &query;
     let mut matches: Vec<OsaResult> = catalogue
         .entries()
         .filter_map(
-            |(path, _)| match strsim::osa_distance(query, &normalise(path)) {
+            |(path, _)| match strsim::osa_distance(query.as_str(), &path) {
                 d if d < 3 => Some(OsaResult::new(d, path)),
                 _ => None,
             },
@@ -259,13 +263,6 @@ fn aliases() -> impl Iterator<Item = (&'static str, &'static str)> {
         })
 }
 
-fn normalise(query: &str) -> NormalisedQuery {
-    let normalised_query = match query.strip_suffix(".gitignore") {
-        Some(name) => name.to_lowercase(),
-        None => query.to_lowercase(),
-    };
-    NormalisedQuery::new(&normalised_query)
-}
 
 #[cfg(test)]
 mod tests {
@@ -279,15 +276,6 @@ mod tests {
         assert_eq!(
             cold_box_template.as_str(),
             "community/BoxLang/ColdBox.gitignore"
-        );
-    }
-
-    #[test]
-    fn test_normalise_normalises_paths_correctly() {
-        assert_eq!(normalise("ColdBox.gitignore"), "coldbox".to_string());
-        assert_eq!(
-            normalise("community/BoxLang/ColdBox.gitignore"),
-            "community/boxlang/coldbox"
         );
     }
 
@@ -342,7 +330,8 @@ mod tests {
     #[test]
     fn resolve_resolves_a_case_insensitive_exact_name() {
         let expected = Resolution::Resolved(TemplatePath::new("Python.gitignore"));
-        assert_eq!(resolve("python", &test_catalogue()), expected);
+        let query = NormalisedQuery::new("python");
+        assert_eq!(resolve(&query, &test_catalogue()), expected);
     }
 
     fn test_catalogue() -> Catalogue {
