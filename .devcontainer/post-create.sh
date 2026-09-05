@@ -32,6 +32,7 @@ sudo apt-get install -y --no-install-recommends build-essential ripgrep fd-find 
 # puts /usr/local/cargo/bin on PATH via containerEnv, so rustup is already here.
 rustup toolchain install nightly --profile default
 rustup default nightly
+rustup component add rust-analyzer rust-src --toolchain nightly
 
 # --- Neovim: the apt version is far older than LazyVim's >= 0.11.2 floor ---
 case "$(uname -m)" in
