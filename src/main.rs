@@ -96,7 +96,10 @@ fn main() -> Result<(), AppError> {
     }
     match atomic_write_file(&template, &path) {
         Ok(()) => debug!("template written to {}", path.display()),
-        Err(err) => warn!("Error writing template to {}: {err}", path.display()),
+        Err(err) => {
+            eprintln!("Error writing template to {}: {err}", path.display());
+            exit(1);
+        }
     }
     Ok(())
 }
