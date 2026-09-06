@@ -5,7 +5,6 @@ edition = "2024"
 description = "Fetch a .gitignore template from the github/gitignore repository, with caching"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/chriswmann/getignore"
-readme = "README.md"
 keywords = ["gitignore", "cli", "git", "template"]
 categories = ["command-line-utilities", "development-tools"]
 
