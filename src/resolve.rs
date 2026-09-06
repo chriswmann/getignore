@@ -218,10 +218,15 @@ fn alias_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolu
     exact_tier(&target, candidates)
 }
 
+// For now `contains_tier` narrows the predicate by filtering out tails containing '/'
+// but this needs to be improved. TODO: Split the candidates for exact versus contain tiers
 fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
     let filtered_paths: Vec<String> = candidates
         .iter()
-        .filter(|candidate| candidate.tail.as_str().contains(query.as_str()))
+        .filter(|candidate| {
+            !candidate.tail.as_str().contains('/')
+                && candidate.tail.as_str().contains(query.as_str())
+        })
         .map(|candidate| candidate.path.as_str().to_string())
         .collect();
     match_filtered_paths(filtered_paths)
@@ -245,7 +250,7 @@ fn fuzzy_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolu
     let mut matches: Vec<OsaResult> = candidates
         .iter()
         .filter_map(|candidate| {
-            match strsim::osa_distance(query.as_str(), candidate.path.as_str()) {
+            match strsim::osa_distance(query.as_str(), candidate.tail.as_str()) {
                 d if d < 3 => Some(OsaResult::new(d, candidate.path.as_str())),
                 _ => None,
             }
