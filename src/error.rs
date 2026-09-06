@@ -21,10 +21,6 @@ use std::time::SystemTimeError;
 #[derive(Debug)]
 pub enum AppError {
     NoLanguage(PathBuf),
-    Parse {
-        input: String,
-        error: String,
-    },
     AmbiguousLanguage {
         language: String,
         matches: Vec<String>,
@@ -82,7 +78,6 @@ impl Display for AppError {
             AppError::Disk(err) => write!(f, "Disk error: {err}"),
             AppError::Time(err) => write!(f, "Time error: {err}"),
             AppError::Serialisation(err) => write!(f, "(De)serialisation error: {err}"),
-            AppError::Parse { input, error } => write!(f, "Could not parse '{input}': {error}"),
             AppError::DidYouMean {
                 language,
                 best,
