@@ -161,10 +161,10 @@ pub fn resolve_template_path(
 fn resolve(query: &NormalisedSlug, catalogue: &Catalogue) -> Resolution {
     let candidates = candidates(catalogue);
 
-    exact_tier(query, catalogue)
-        .or_else(|| alias_tier(query, catalogue))
-        .or_else(|| prefix_tier(query, catalogue))
-        .or_else(|| fuzzy_tier(query, catalogue))
+    exact_tier(query, &candidates)
+        .or_else(|| alias_tier(query, &candidates))
+        .or_else(|| contains_tier(query, &candidates))
+        .or_else(|| fuzzy_tier(query, &candidates))
         .unwrap_or(Resolution::NotFound)
 }
 
@@ -203,44 +203,53 @@ fn tails(normalised: &str) -> impl Iterator<Item = &str> {
         .chain(std::iter::once(normalised))
 }
 
-fn exact_tier(query: &NormalisedSlug, catalogue: &Catalogue) -> Option<Resolution> {
-    let matched: Vec<_> = catalogue
-        .entries()
-        .filter(|(path, _)| normalise(path) == query.as_str())
-        .map(|(path, _)| path.to_string())
+fn exact_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
+    let filtered_paths: Vec<_> = candidates
+        .iter()
+        .filter(|&candidate| *query == candidate.tail)
+        .map(|candidate| candidate.path.as_str().to_string())
         .collect();
-    match matched.as_slice() {
+    match_filtered_paths(filtered_paths)
+}
+
+fn alias_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
+    let target =
+        aliases().find_map(|(alias, target)| (alias == query.as_str()).then_some(target))?;
+    exact_tier(&target, candidates)
+}
+
+fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
+    let filtered_paths: Vec<String> = candidates
+        .iter()
+        .filter(|candidate| candidate.tail.as_str().contains(query.as_str()))
+        .map(|candidate| candidate.path.as_str().to_string())
+        .collect();
+    match_filtered_paths(filtered_paths)
+}
+
+fn match_filtered_paths(mut filtered_paths: Vec<String>) -> Option<Resolution> {
+    match filtered_paths.as_slice() {
         [] => None,
         [only] => Some(Resolution::Resolved(TemplatePath::new(only))),
-        _ => Some(Resolution::Ambiguous { matches: matched }),
+        _ => {
+            filtered_paths.dedup();
+            Some(Resolution::Ambiguous {
+                matches: filtered_paths.into_iter().collect::<Vec<String>>(),
+            })
+        }
     }
 }
 
-fn alias_tier(query: &NormalisedSlug, catalogue: &Catalogue) -> Option<Resolution> {
-    let target =
-        aliases().find_map(|(alias, target)| (alias == query.as_str()).then_some(target))?;
-    exact_tier(&target, catalogue)
-}
-
-fn prefix_tier(query: &NormalisedSlug, catalogue: &Catalogue) -> Option<Resolution> {
-    catalogue.entries().find_map(|(path, _)| {
-        if path.contains(query.as_str()) {
-            Some(Resolution::Resolved(TemplatePath::new(path)))
-        } else {
-            None
-        }
-    })
-}
-
-fn fuzzy_tier(query: &NormalisedSlug, catalogue: &Catalogue) -> Option<Resolution> {
-    let mut matches: Vec<OsaResult> = catalogue
-        .entries()
-        .filter_map(
-            |(path, _)| match strsim::osa_distance(query.as_str(), &normalise(path)) {
-                d if d < 3 => Some(OsaResult::new(d, path)),
+fn fuzzy_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
+    let query = &query;
+    let mut matches: Vec<OsaResult> = candidates
+        .iter()
+        .filter_map(|candidate| {
+            match strsim::osa_distance(query.as_str(), candidate.path.as_str()) {
+                d if d < 3 => Some(OsaResult::new(d, candidate.path.as_str())),
                 _ => None,
-            },
-        )
+            }
+        })
         .collect();
     if matches.is_empty() {
         None
@@ -277,13 +286,6 @@ fn aliases() -> impl Iterator<Item = (&'static str, NormalisedSlug)> {
         })
 }
 
-fn normalise(query: &str) -> String {
-    match query.strip_suffix(SUFFIX) {
-        Some(name) => name.to_lowercase(),
-        None => query.to_lowercase(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,15 +302,6 @@ mod tests {
     }
 
     #[test]
-    fn test_normalise_normalises_paths_correctly() {
-        assert_eq!(normalise("ColdBox.gitignore"), "coldbox".to_string());
-        assert_eq!(
-            normalise("community/BoxLang/ColdBox.gitignore"),
-            "community/boxlang/coldbox"
-        );
-    }
-
-    #[test]
     fn derive_preserves_dotted_entry_names() {
         assert_eq!(
             derive("ecu.test.gitignore"),
@@ -320,16 +313,30 @@ mod tests {
     }
 
     #[test]
-    fn exact_tier_matches_once_when_query_is_exact() {
-        let entries = &[
-            ("Rust.gitignore", "Rust"),
-            ("community/DM/Rustici.gitignore", "Rustici"),
-            ("community/Xilinx.gitignore", "Xilinx.gitignore"),
+    fn exact_tier_resolves_to_resolution_resolved_when_there_is_only_one_match() {
+        let candidates = vec![
+            Candidate {
+                tail: "rust"
+                    .try_into()
+                    .expect("Should be able to normalise 'rust'"),
+                path: TemplatePath::new("Rust.gitignore"),
+            },
+            Candidate {
+                tail: "rustici"
+                    .try_into()
+                    .expect("Should be able to normalise 'rustici'"),
+                path: TemplatePath::new("community/DM/Rustici.gitignore"),
+            },
+            Candidate {
+                tail: "xilinx"
+                    .try_into()
+                    .expect("Should be able to normalise 'xilinx'"),
+                path: TemplatePath::new("community/Xilinx.gitignore"),
+            },
         ];
-        let catalogue = Catalogue::for_tests(entries);
         let normalised_query = NormalisedSlug::try_from("rust".to_string())
             .expect("Should be able to normalise 'rust'");
-        let answer = exact_tier(&normalised_query, &catalogue);
+        let answer = exact_tier(&normalised_query, &candidates);
         assert_eq!(
             answer,
             Some(Resolution::Resolved(TemplatePath::new("Rust.gitignore"))),
@@ -344,6 +351,71 @@ mod tests {
         assert_eq!(resolve(&normalised_query, &test_catalogue()), expected);
     }
 
+    #[test]
+    fn resolve_resolves_to_resolution_resolved_when_one_path_matches() {
+        let normalised_query: NormalisedSlug = "coldbox"
+            .try_into()
+            .expect("Should be able to normalise 'coldbox'");
+        let expected =
+            Resolution::Resolved(TemplatePath::new("community/BoxLang/ColdBox.gitignore"));
+        assert_eq!(resolve(&normalised_query, &test_catalogue()), expected);
+    }
+
+    #[test]
+    fn contains_tier_resolves_to_none_when_no_paths_match() {
+        let normalised_query: NormalisedSlug = "incorrect_path"
+            .try_into()
+            .expect("Should be able to normalise 'incorrect_path'");
+        assert_eq!(contains_tier(&normalised_query, &test_candidates()), None);
+    }
+
+    #[test]
+    fn contains_tier_resolves_to_resolution_resolved_when_one_path_matches() {
+        let normalised_query: NormalisedSlug = "node"
+            .try_into()
+            .expect("Should be able to normalise 'node'");
+        let expected = Some(Resolution::Resolved(TemplatePath::new("Node.gitignore")));
+        assert_eq!(
+            contains_tier(&normalised_query, &test_candidates()),
+            expected
+        );
+    }
+
+    #[test]
+    fn contains_tier_resolves_to_resolution_ambiguous_when_multiple_paths_match() {
+        let normalised_query: NormalisedSlug = "community"
+            .try_into()
+            .expect("Should be able to normalise 'community'");
+        let expected = Some(Resolution::Ambiguous {
+            matches: vec![
+                "community/BoxLang/ColdBox.gitignore".to_string(),
+                "community/Racket.gitignore".to_string(),
+            ],
+        });
+        assert_eq!(
+            contains_tier(&normalised_query, &test_candidates()),
+            expected
+        );
+    }
+
+    #[test]
+    fn contains_tier_resolves_to_ambiguous_with_unique_matches_when_duplicated_paths_match_different_candidates()
+     {
+        let normalised_query: NormalisedSlug = "racket"
+            .try_into()
+            .expect("Should be able to normalise 'racket'");
+        let expected = Some(Resolution::Ambiguous {
+            matches: vec![
+                "Racket.gitignore".to_string(),
+                "community/Racket.gitignore".to_string(),
+            ],
+        });
+        assert_eq!(
+            contains_tier(&normalised_query, &test_candidates()),
+            expected,
+        );
+    }
+
     fn test_catalogue() -> Catalogue {
         let entries = [
             ("Python.gitignore", "Python"),
@@ -353,5 +425,60 @@ mod tests {
             ("community/BoxLang/ColdBox.gitignore", "ColdBox"),
         ];
         Catalogue::for_tests(&entries)
+    }
+
+    /// The candidates `candidates(test_catalogue())` produces: one per tail,
+    /// in `BTreeMap` path order, shortest tail first within each path.
+    fn test_candidates() -> Vec<Candidate> {
+        vec![
+            Candidate {
+                tail: "node"
+                    .try_into()
+                    .expect("Should be able to normalise 'node'"),
+                path: TemplatePath::new("Node.gitignore"),
+            },
+            Candidate {
+                tail: "python"
+                    .try_into()
+                    .expect("Should be able to normalise 'python'"),
+                path: TemplatePath::new("Python.gitignore"),
+            },
+            Candidate {
+                tail: "racket"
+                    .try_into()
+                    .expect("Should be able to normalise 'racket'"),
+                path: TemplatePath::new("Racket.gitignore"),
+            },
+            Candidate {
+                tail: "coldbox"
+                    .try_into()
+                    .expect("Should be able to normalise 'coldbox'"),
+                path: TemplatePath::new("community/BoxLang/ColdBox.gitignore"),
+            },
+            Candidate {
+                tail: "boxlang/coldbox"
+                    .try_into()
+                    .expect("Should be able to normalise 'boxlang/coldbox'"),
+                path: TemplatePath::new("community/BoxLang/ColdBox.gitignore"),
+            },
+            Candidate {
+                tail: "community/boxlang/coldbox"
+                    .try_into()
+                    .expect("Should be able to normalise 'community/boxlang/coldbox'"),
+                path: TemplatePath::new("community/BoxLang/ColdBox.gitignore"),
+            },
+            Candidate {
+                tail: "racket"
+                    .try_into()
+                    .expect("Should be able to normalise 'racket'"),
+                path: TemplatePath::new("community/Racket.gitignore"),
+            },
+            Candidate {
+                tail: "community/racket"
+                    .try_into()
+                    .expect("Should be able to normalise 'community/racket'"),
+                path: TemplatePath::new("community/Racket.gitignore"),
+            },
+        ]
     }
 }
