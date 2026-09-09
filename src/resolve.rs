@@ -270,8 +270,8 @@ fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Res
 }
 
 #[instrument]
-fn match_filtered_paths(filtered_paths: &Vec<String>) -> Option<Resolution> {
-    match filtered_paths.as_slice() {
+fn match_filtered_paths(filtered_paths: &[String]) -> Option<Resolution> {
+    match filtered_paths {
         [] => None,
         [only] => Some(Resolution::Resolved(TemplatePath::new(only))),
         [best, rest @ ..] => Some(Resolution::DidYouMean {
