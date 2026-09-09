@@ -22,6 +22,9 @@
 //! uses the repository's own casing.
 
 use std::fmt;
+use std::path;
+
+use tracing::instrument;
 
 use crate::catalogue::Catalogue;
 use crate::error::AppError;
@@ -85,7 +88,7 @@ impl fmt::Display for Resolution {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Candidate {
     tail: NormalisedSlug,
     path: TemplatePath,
@@ -103,7 +106,7 @@ impl Candidate {
     }
 }
 
-#[derive(Debug, Hash, Clone, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct NormalisedSlug {
     slug: String,
 }
@@ -168,11 +171,19 @@ fn resolve(query: &NormalisedSlug, catalogue: &Catalogue) -> Resolution {
         .unwrap_or(Resolution::NotFound)
 }
 
+// Builds candidate matches from the catalogue,
+// ensuring they are deterministically ordered and deduped.
+// In turn, this ensures matching tiers do not return
+// duplicates.
 fn candidates(catalogue: &Catalogue) -> Vec<Candidate> {
-    catalogue
+    let mut candidates: Vec<Candidate> = catalogue
         .entries()
         .flat_map(|(path, _name)| derive(path))
-        .collect()
+        .collect();
+
+    candidates.sort_unstable();
+    candidates.dedup();
+    candidates
 }
 
 /// Derives the match candidates (tails) for an index path, paired with the
@@ -223,7 +234,12 @@ fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Res
     let filtered_paths: Vec<String> = candidates
         .iter()
         .filter(|candidate| {
-            let candidate_path = path::Path::new(candidate.path.as_str());
+            let normalised_path: NormalisedSlug = candidate
+                .path
+                .as_str()
+                .try_into()
+                .expect("Should be able to normalise a candidate path");
+            let candidate_path = path::Path::new(normalised_path.as_str());
             candidate_path
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -234,16 +250,13 @@ fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Res
     match_filtered_paths(filtered_paths)
 }
 
-fn match_filtered_paths(mut filtered_paths: Vec<String>) -> Option<Resolution> {
+fn match_filtered_paths(filtered_paths: Vec<String>) -> Option<Resolution> {
     match filtered_paths.as_slice() {
         [] => None,
         [only] => Some(Resolution::Resolved(TemplatePath::new(only))),
-        _ => {
-            filtered_paths.dedup();
-            Some(Resolution::Ambiguous {
-                matches: filtered_paths.into_iter().collect::<Vec<String>>(),
-            })
-        }
+        _ => Some(Resolution::Ambiguous {
+            matches: filtered_paths.into_iter().collect::<Vec<String>>(),
+        }),
     }
 }
 
