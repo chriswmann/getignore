@@ -1,5 +1,8 @@
+use tracing::{debug, instrument};
+
 use crate::error::{AppError, TemplateError};
 
+#[instrument]
 pub fn display_app_error(app_error: &AppError) -> String {
     match app_error {
         AppError::HomeDir(err) => err.clone(),
@@ -14,6 +17,7 @@ pub fn display_app_error(app_error: &AppError) -> String {
     }
 }
 
+#[instrument]
 pub fn display_template_error(error: &TemplateError) -> String {
     match error {
         TemplateError::DidYouMean { query, best, rest } => {
@@ -22,7 +26,10 @@ pub fn display_template_error(error: &TemplateError) -> String {
             match rest.as_slice() {
                 [first] => buf.push_str(format!(" or {first}").as_str()),
                 [first, second] => buf.push_str(format!(", {first} or {second}").as_str()),
-                _ => {}
+                _ => debug!(
+                    "DidYouMean had {} additional matches, so they were discarded",
+                    rest.len()
+                ),
             }
             buf.insert(buf.len(), '?');
             buf
