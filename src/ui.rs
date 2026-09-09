@@ -20,7 +20,7 @@ pub fn display_template_error(error: &TemplateError) -> String {
             let mut buf: String =
                 format!("{query} did not match any templates. Did you mean {best}");
             match rest.as_slice() {
-                [first] => buf.push_str(format!("or {first}").as_str()),
+                [first] => buf.push_str(format!(" or {first}").as_str()),
                 [first, second] => buf.push_str(format!(", {first} or {second}").as_str()),
                 _ => {}
             }
