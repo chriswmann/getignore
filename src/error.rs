@@ -15,32 +15,20 @@
 use std::error::Error;
 use std::fmt::{self, Display};
 use std::io;
-use std::path::PathBuf;
 use std::time::SystemTimeError;
 
 #[derive(Debug)]
 pub enum AppError {
-    NoLanguage(PathBuf),
-    AmbiguousLanguage {
-        language: String,
-        matches: Vec<String>,
-    },
-    DidYouMean {
-        language: String,
-        best: String,
-        rest: Vec<String>,
-    },
-    Disk(String),
+    HomeDir(String),
+    DiskWrite(String),
     Io(io::Error),
     Network {
         context: &'static str,
         source: ureq::Error,
     },
-    LanguageNotFound(String),
     Serialisation(serde_json::Error),
     Time(SystemTimeError),
     TruncatedTree,
-    EmptyQuery,
 }
 
 impl Error for AppError {
@@ -54,39 +42,19 @@ impl Error for AppError {
         }
     }
 }
+
 impl Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AppError::NoLanguage(path) => write!(
-                f,
-                "No language associated with gitignore entry {}",
-                path.display()
-            ),
-            AppError::LanguageNotFound(language) => {
-                write!(f, "No gitignore entry found for {language}")
-            }
-            AppError::AmbiguousLanguage { language, matches } => write!(
-                f,
-                "Multiple gitignore entries matched {language}: {}",
-                matches.join(", ")
-            ),
             AppError::Network { context, source } => {
                 write!(f, "Network error while {context}: source: {source}")
             }
             AppError::TruncatedTree => write!(f, "GH tree response was truncated"),
             AppError::Io(err) => write!(f, "IO error: {err}"),
-            AppError::Disk(err) => write!(f, "Disk error: {err}"),
+            AppError::HomeDir(err) => write!(f, "Home dir error: {err}"),
+            AppError::DiskWrite(err) => write!(f, "Disk write error: {err}"),
             AppError::Time(err) => write!(f, "Time error: {err}"),
             AppError::Serialisation(err) => write!(f, "(De)serialisation error: {err}"),
-            AppError::DidYouMean {
-                language,
-                best,
-                rest,
-            } => write!(
-                f,
-                "Could not identify single template for {language}. Best match was {best}. Other candidates are {rest:?}",
-            ),
-            AppError::EmptyQuery => write!(f, "No langage detected"),
         }
     }
 }
@@ -105,6 +73,37 @@ impl From<SystemTimeError> for AppError {
 impl From<serde_json::Error> for AppError {
     fn from(err: serde_json::Error) -> Self {
         Self::Serialisation(err)
+    }
+}
+
+#[derive(Debug)]
+pub enum TemplateError {
+    DidYouMean {
+        query: String,
+        best: String,
+        rest: Vec<String>,
+    },
+    NotFound(String),
+    EmptyQuery,
+}
+
+impl Error for TemplateError {}
+
+impl Display for TemplateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TemplateError::NotFound(query) => {
+                write!(f, "No gitignore entry found for {query}")
+            }
+            TemplateError::DidYouMean {
+                query,
+                best: _,
+                rest: _,
+            } => {
+                write!(f, "Could not identify single template for {query}.")
+            }
+            TemplateError::EmptyQuery => write!(f, "No langage detected"),
+        }
     }
 }
 

@@ -3,7 +3,8 @@
 //! [`resolve`] tries four tiers in order and stops at the first that answers:
 //!
 //! 1. exact match against the normalised path, reporting
-//!    [`Resolution::Ambiguous`] when more than one entry matches,
+//!    [`Resolution::DidYouMean`] when more than one entry matches closely
+//!    or [`Resolution::NotFound`] otherwise
 //! 2. the hand-maintained alias table in `aliases.txt` (`js` -> `Node`), which
 //!    rewrites the query and retries the exact tier,
 //! 3. substring match: the first entry whose path contains the query wins.
@@ -24,10 +25,10 @@
 use std::fmt;
 use std::path;
 
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use crate::catalogue::Catalogue;
-use crate::error::AppError;
+use crate::error::TemplateError;
 
 const SUFFIX: &str = ".gitignore";
 
@@ -63,8 +64,6 @@ impl<'a> OsaResult<'a> {
 pub enum Resolution {
     /// Language recognised and the gitignore will be provided.
     Resolved(TemplatePath),
-    /// There are more than one gitignores for this language.
-    Ambiguous { matches: Vec<String> },
     /// Language not recognised but one or more suggestions found. Rest is ordered best first.
     DidYouMean { best: String, rest: Vec<String> },
     /// Language not recognised, no suggestions found.
@@ -75,7 +74,6 @@ impl fmt::Display for Resolution {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Resolved(path) => write!(f, "Found exact match: {}", path.as_str()),
-            Self::Ambiguous { matches } => write!(f, "Found several matches: {matches:?}"),
             Self::DidYouMean { best, rest } => {
                 if rest.is_empty() {
                     write!(f, "Did you mean {best}?")
@@ -118,49 +116,58 @@ impl NormalisedSlug {
 }
 
 impl TryFrom<String> for NormalisedSlug {
-    type Error = AppError;
+    type Error = TemplateError;
     fn try_from(mut slug: String) -> Result<Self, Self::Error> {
         slug.make_ascii_lowercase();
         if let Some(stem) = slug.strip_suffix(SUFFIX) {
             slug.truncate(stem.len());
         }
         if slug.is_empty() {
-            return Err(AppError::EmptyQuery);
+            return Err(TemplateError::EmptyQuery);
         }
         Ok(Self { slug })
     }
 }
 
 impl TryFrom<&str> for NormalisedSlug {
-    type Error = AppError;
+    type Error = TemplateError;
     fn try_from(slug: &str) -> Result<Self, Self::Error> {
         Self::try_from(slug.to_string())
     }
 }
 
+#[instrument(skip(catalogue))]
 pub fn resolve_template_path(
-    language: String,
+    query: String,
     catalogue: &Catalogue,
-) -> Result<TemplatePath, AppError> {
-    let normalised_query = language.clone().try_into()?;
+) -> Result<TemplatePath, TemplateError> {
+    let normalised_query = query.clone().try_into()?;
     let template_path = match resolve(&normalised_query, catalogue) {
-        Resolution::Resolved(path) => Ok(path),
-        Resolution::Ambiguous { matches } => Err(AppError::AmbiguousLanguage {
-            language: language.clone(),
-            matches,
-        }),
-        Resolution::DidYouMean { best, rest } => Err(AppError::DidYouMean {
-            language: language.clone(),
-            best,
-            rest,
-        }),
-        Resolution::NotFound => Err(AppError::LanguageNotFound(language)),
+        Resolution::Resolved(path) => {
+            debug!("Query resolved to {path:?}");
+            Ok(path)
+        }
+        Resolution::DidYouMean { best, rest } => {
+            debug!(
+                "Could not resolve {normalised_query:?} but found suggestions (AppError::DidYouMean)."
+            );
+            Err(TemplateError::DidYouMean {
+                query: query.clone(),
+                best,
+                rest,
+            })
+        }
+        Resolution::NotFound => {
+            debug!("Cound not resolve query, {query} not found");
+            Err(TemplateError::NotFound(query))
+        }
     }?;
     Ok(template_path)
 }
 
 /// Pure resolution logic, no I/O. Tiers are tried in order: exact
 /// (case-insensitive), alias, substring, then fuzzy suggestions.
+#[instrument(skip(catalogue))]
 fn resolve(query: &NormalisedSlug, catalogue: &Catalogue) -> Resolution {
     let candidates = candidates(catalogue);
 
@@ -191,6 +198,7 @@ fn candidates(catalogue: &Catalogue) -> Vec<Candidate> {
 /// compared against; the `TemplatePath` is what gets fetched. The tail is normalised
 /// up-front so that comparison of the segmented tails with the normalised query
 /// (user-given language argument) can be performed later.
+#[instrument]
 fn derive(path: &str) -> Vec<Candidate> {
     let normalised_path: NormalisedSlug = path.try_into().unwrap();
 
@@ -214,15 +222,17 @@ fn tails(normalised: &str) -> impl Iterator<Item = &str> {
         .chain(std::iter::once(normalised))
 }
 
+#[instrument]
 fn exact_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
     let filtered_paths: Vec<_> = candidates
         .iter()
         .filter(|&candidate| *query == candidate.tail)
         .map(|candidate| candidate.path.as_str().to_string())
         .collect();
-    match_filtered_paths(filtered_paths)
+    match_filtered_paths(&filtered_paths)
 }
 
+#[instrument]
 fn alias_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
     let target =
         aliases().find_map(|(alias, target)| (alias == query.as_str()).then_some(target))?;
@@ -247,15 +257,17 @@ fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Res
         })
         .map(|candidate| candidate.path.as_str().to_string())
         .collect();
-    match_filtered_paths(filtered_paths)
+    match_filtered_paths(&filtered_paths)
 }
 
-fn match_filtered_paths(filtered_paths: Vec<String>) -> Option<Resolution> {
+#[instrument]
+fn match_filtered_paths(filtered_paths: &Vec<String>) -> Option<Resolution> {
     match filtered_paths.as_slice() {
         [] => None,
         [only] => Some(Resolution::Resolved(TemplatePath::new(only))),
-        _ => Some(Resolution::Ambiguous {
-            matches: filtered_paths.into_iter().collect::<Vec<String>>(),
+        [best, rest @ ..] => Some(Resolution::DidYouMean {
+            best: best.clone(),
+            rest: rest.to_vec(),
         }),
     }
 }
@@ -398,41 +410,6 @@ mod tests {
         assert_eq!(
             contains_tier(&normalised_query, &test_candidates()),
             expected
-        );
-    }
-
-    #[test]
-    fn contains_tier_resolves_to_resolution_ambiguous_when_multiple_paths_match() {
-        let normalised_query: NormalisedSlug = "community"
-            .try_into()
-            .expect("Should be able to normalise 'community'");
-        let expected = Some(Resolution::Ambiguous {
-            matches: vec![
-                "community/BoxLang/ColdBox.gitignore".to_string(),
-                "community/Racket.gitignore".to_string(),
-            ],
-        });
-        assert_eq!(
-            contains_tier(&normalised_query, &test_candidates()),
-            expected
-        );
-    }
-
-    #[test]
-    fn contains_tier_resolves_to_ambiguous_with_unique_matches_when_duplicated_paths_match_different_candidates()
-     {
-        let normalised_query: NormalisedSlug = "racket"
-            .try_into()
-            .expect("Should be able to normalise 'racket'");
-        let expected = Some(Resolution::Ambiguous {
-            matches: vec![
-                "Racket.gitignore".to_string(),
-                "community/Racket.gitignore".to_string(),
-            ],
-        });
-        assert_eq!(
-            contains_tier(&normalised_query, &test_candidates()),
-            expected,
         );
     }
 

@@ -61,18 +61,17 @@ pub struct Entry {
     pub sha: BlobSha,
 }
 
-impl TryFrom<TreeEntry> for Entry {
-    type Error = AppError;
-    fn try_from(git_entry: TreeEntry) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl From<TreeEntry> for Entry {
+    fn from(git_entry: TreeEntry) -> Self {
+        Self {
             name: git_entry
                 .path
                 .file_stem()
-                .ok_or_else(|| AppError::NoLanguage(git_entry.path.clone()))?
+                .expect("Should have a stem because `build_index` only adds to the index if the extension is 'gitignore'")
                 .to_string_lossy()
                 .to_string(),
             sha: git_entry.sha,
-        })
+        }
     }
 }
 
@@ -86,7 +85,7 @@ pub fn build_index(response: RepoSnapshot, fetched_at: u64) -> Result<Index, App
             && git_entry.path.extension().and_then(OsStr::to_str) == Some("gitignore")
         {
             let path = git_entry.path.to_string_lossy().to_string();
-            let entry = Entry::try_from(git_entry)?;
+            let entry = Entry::from(git_entry);
             entries.insert(path, entry);
         }
     }
@@ -170,13 +169,12 @@ pub fn load_blob_from_cache(cache_file: &Path) -> Result<String, AppError> {
 }
 
 pub fn atomic_write_file(contents: &str, dest: &Path) -> Result<(), AppError> {
-    let dir = dest
-        .parent()
-        .ok_or_else(|| AppError::Disk(format!("No parent directory for {}", dest.display())))?;
-    let file_name = dest
-        .file_name()
-        .and_then(OsStr::to_str)
-        .ok_or_else(|| AppError::Disk(format!("No file name in {}", dest.display())))?;
+    let dir = dest.parent().ok_or_else(|| {
+        AppError::DiskWrite(format!("No parent directory for {}", dest.display()))
+    })?;
+    let file_name = dest.file_name().and_then(OsStr::to_str).ok_or_else(|| {
+        AppError::DiskWrite(format!("File name not recognised in {}", dest.display()))
+    })?;
     let tmp_path = dir.join(format!("{file_name}.{}.tmp", process::id()));
 
     fs::write(&tmp_path, contents)?;
