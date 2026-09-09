@@ -172,9 +172,18 @@ fn resolve(query: &NormalisedSlug, catalogue: &Catalogue) -> Resolution {
     let candidates = candidates(catalogue);
 
     exact_tier(query, &candidates)
-        .or_else(|| alias_tier(query, &candidates))
-        .or_else(|| contains_tier(query, &candidates))
-        .or_else(|| fuzzy_tier(query, &candidates))
+        .or_else(|| {
+            debug!("Exact tier failed, fell through to alias tier");
+            alias_tier(query, &candidates)
+        })
+        .or_else(|| {
+            debug!("Alias tier failed, fell through to contains_tier");
+            contains_tier(query, &candidates)
+        })
+        .or_else(|| {
+            debug!("Contains tier failed, fell through to fuzzy tier");
+            fuzzy_tier(query, &candidates)
+        })
         .unwrap_or(Resolution::NotFound)
 }
 
@@ -278,7 +287,11 @@ fn fuzzy_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolu
         .iter()
         .filter_map(|candidate| {
             match strsim::osa_distance(query.as_str(), candidate.tail.as_str()) {
-                d if d < 3 => Some(OsaResult::new(d, candidate.path.as_str())),
+                d if d < 3 => {
+                    let osa_result = OsaResult::new(d, candidate.path.as_str());
+                    debug!("{osa_result:?}");
+                    Some(osa_result)
+                }
                 _ => None,
             }
         })
