@@ -218,14 +218,16 @@ fn alias_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolu
     exact_tier(&target, candidates)
 }
 
-// For now `contains_tier` narrows the predicate by filtering out tails containing '/'
-// but this needs to be improved. TODO: Split the candidates for exact versus contain tiers
+#[instrument]
 fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
     let filtered_paths: Vec<String> = candidates
         .iter()
         .filter(|candidate| {
-            !candidate.tail.as_str().contains('/')
-                && candidate.tail.as_str().contains(query.as_str())
+            let candidate_path = path::Path::new(candidate.path.as_str());
+            candidate_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .is_some_and(|stem| stem.contains(query.as_str()))
         })
         .map(|candidate| candidate.path.as_str().to_string())
         .collect();
