@@ -23,8 +23,8 @@
 //! uses the repository's own casing.
 
 use std::fmt;
-use std::path;
 
+use strsim::osa_distance;
 use tracing::{debug, instrument};
 
 use crate::catalogue::Catalogue;
@@ -46,6 +46,23 @@ impl TemplatePath {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
+
+    fn file_stem(&self) -> &str {
+        let stem = self
+            .0
+            .strip_suffix(SUFFIX)
+            .expect("Should be able to strip '.gitignore' from a TemplatePath");
+        match stem.rsplit_once('/') {
+            Some((_, file_name)) => file_name,
+            None => stem,
+        }
+    }
+}
+
+impl fmt::Display for TemplatePath {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq)]
@@ -65,25 +82,9 @@ pub enum Resolution {
     /// Language recognised and the gitignore will be provided.
     Resolved(TemplatePath),
     /// Language not recognised but one or more suggestions found. Rest is ordered best first.
-    DidYouMean { best: String, rest: Vec<String> },
+    DidYouMean { suggestions: Vec<TemplatePath> },
     /// Language not recognised, no suggestions found.
     NotFound,
-}
-
-impl fmt::Display for Resolution {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Resolved(path) => write!(f, "Found exact match: {}", path.as_str()),
-            Self::DidYouMean { best, rest } => {
-                if rest.is_empty() {
-                    write!(f, "Did you mean {best}?")
-                } else {
-                    write!(f, "Did you mean {best} or one of these: {rest:?}")
-                }
-            }
-            Self::NotFound => write!(f, "No templates matched your query"),
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -147,15 +148,11 @@ pub fn resolve_template_path(
             debug!("Query resolved to {path:?}");
             Ok(path)
         }
-        Resolution::DidYouMean { best, rest } => {
+        Resolution::DidYouMean { suggestions } => {
             debug!(
                 "Could not resolve {normalised_query:?} but found suggestions (AppError::DidYouMean)."
             );
-            Err(TemplateError::DidYouMean {
-                query: query.clone(),
-                best,
-                rest,
-            })
+            Err(TemplateError::DidYouMean { query, suggestions })
         }
         Resolution::NotFound => {
             debug!("Cound not resolve query, {query} not found");
@@ -231,53 +228,66 @@ fn tails(normalised: &str) -> impl Iterator<Item = &str> {
         .chain(std::iter::once(normalised))
 }
 
-#[instrument]
+#[instrument(skip(candidates))]
 fn exact_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
     let filtered_paths: Vec<_> = candidates
         .iter()
         .filter(|&candidate| *query == candidate.tail)
-        .map(|candidate| candidate.path.as_str().to_string())
+        .map(|candidate| candidate.path.clone())
         .collect();
-    match_filtered_paths(&filtered_paths)
+    match_filtered_paths(query.as_str(), &filtered_paths)
 }
 
-#[instrument]
+#[instrument(skip(candidates))]
 fn alias_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
-    let target =
-        aliases().find_map(|(alias, target)| (alias == query.as_str()).then_some(target))?;
+    let target = aliases().find_map(|(alias, target)| {
+        {
+            debug!(
+                "alias: {alias:12?} query: {:12?} target: {:12?}",
+                query.as_str(),
+                target.as_str()
+            );
+
+            debug!("alias matched, target={target:?}");
+
+            let result = exact_tier(&target, candidates);
+
+            debug!("exact_tier returned {result:?}");
+        }
+
+        (alias == query.as_str()).then_some(target)
+    })?;
     exact_tier(&target, candidates)
 }
 
-#[instrument]
+#[instrument(skip(candidates))]
 fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
-    let filtered_paths: Vec<String> = candidates
+    let filtered_paths: Vec<TemplatePath> = candidates
         .iter()
-        .filter(|candidate| {
-            let normalised_path: NormalisedSlug = candidate
-                .path
-                .as_str()
-                .try_into()
-                .expect("Should be able to normalise a candidate path");
-            let candidate_path = path::Path::new(normalised_path.as_str());
-            candidate_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .is_some_and(|stem| stem.contains(query.as_str()))
-        })
-        .map(|candidate| candidate.path.as_str().to_string())
+        .filter(|candidate| candidate.path.file_stem().contains(query.as_str()))
+        .map(|candidate| candidate.path.clone())
         .collect();
-    match_filtered_paths(&filtered_paths)
+    match_filtered_paths(query.as_str(), &filtered_paths)
 }
 
 #[instrument]
-fn match_filtered_paths(filtered_paths: &[String]) -> Option<Resolution> {
+fn match_filtered_paths(query: &str, filtered_paths: &[TemplatePath]) -> Option<Resolution> {
     match filtered_paths {
         [] => None,
-        [only] => Some(Resolution::Resolved(TemplatePath::new(only))),
-        [best, rest @ ..] => Some(Resolution::DidYouMean {
-            best: best.clone(),
-            rest: rest.to_vec(),
-        }),
+        [only] => Some(Resolution::Resolved(only.clone())),
+        suggestions => {
+            let first_stem = suggestions.first().expect("Should be able to get first suggestion as we're in a match arm known to have multiple").file_stem();
+            let similar_paths = suggestions
+                .iter()
+                .filter_map(|r| {
+                    (osa_distance(&r.file_stem().to_lowercase(), &first_stem.to_lowercase()) < 3)
+                        .then_some(r.clone())
+                })
+                .collect();
+            Some(Resolution::DidYouMean {
+                suggestions: similar_paths,
+            })
+        }
     }
 }
 
@@ -287,7 +297,7 @@ fn fuzzy_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolu
         .iter()
         .filter_map(|candidate| {
             match strsim::osa_distance(query.as_str(), candidate.tail.as_str()) {
-                d if d < 3 => {
+                d if d < 2 => {
                     let osa_result = OsaResult::new(d, candidate.path.as_str());
                     debug!("{osa_result:?}");
                     Some(osa_result)
@@ -300,16 +310,9 @@ fn fuzzy_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolu
         None
     } else {
         matches.sort_unstable();
-        let best = matches
-            .first()
-            .expect("Should have a non-empty vector as we've just checked for emptiness above")
-            .path;
-        let rest = matches.iter().skip(1).map(|o| o.path.to_string()).collect();
+        let suggestions = matches.iter().map(|o| TemplatePath::new(o.path)).collect();
 
-        Some(Resolution::DidYouMean {
-            best: best.to_string(),
-            rest,
-        })
+        Some(Resolution::DidYouMean { suggestions })
     }
 }
 

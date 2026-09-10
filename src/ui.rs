@@ -1,4 +1,6 @@
-use tracing::{debug, instrument};
+use std::fmt::Write;
+
+use tracing::instrument;
 
 use crate::error::{AppError, TemplateError};
 
@@ -20,18 +22,12 @@ pub fn display_app_error(app_error: &AppError) -> String {
 #[instrument]
 pub fn display_template_error(error: &TemplateError) -> String {
     match error {
-        TemplateError::DidYouMean { query, best, rest } => {
-            let mut buf: String =
-                format!("{query} did not match any templates. Did you mean {best}");
-            match rest.as_slice() {
-                [first] => buf.push_str(format!(" or {first}").as_str()),
-                [first, second] => buf.push_str(format!(", {first} or {second}").as_str()),
-                _ => debug!(
-                    "DidYouMean had {} additional matches, so they were discarded",
-                    rest.len()
-                ),
+        TemplateError::DidYouMean { query, suggestions } => {
+            let mut buf =
+                format!("'{query}' did not match any templates. Found these suggestions:\n");
+            for suggestion in suggestions {
+                writeln!(buf, "{suggestion}").unwrap();
             }
-            buf.insert(buf.len(), '?');
             buf
         }
         TemplateError::NotFound(query) => {

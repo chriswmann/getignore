@@ -17,6 +17,8 @@ use std::fmt::{self, Display};
 use std::io;
 use std::time::SystemTimeError;
 
+use crate::resolve::TemplatePath;
+
 #[derive(Debug)]
 pub enum AppError {
     HomeDir(String),
@@ -80,8 +82,7 @@ impl From<serde_json::Error> for AppError {
 pub enum TemplateError {
     DidYouMean {
         query: String,
-        best: String,
-        rest: Vec<String>,
+        suggestions: Vec<TemplatePath>,
     },
     NotFound(String),
     EmptyQuery,
@@ -97,8 +98,7 @@ impl Display for TemplateError {
             }
             TemplateError::DidYouMean {
                 query,
-                best: _,
-                rest: _,
+                suggestions: _,
             } => {
                 write!(f, "Could not identify single template for {query}.")
             }
