@@ -270,7 +270,10 @@ fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Res
         })
         .map(|candidate| candidate.path.clone())
         .collect();
-    match_filtered_paths(query.as_str(), &filtered_paths)
+    let mut unique_paths = filtered_paths;
+    unique_paths.sort_unstable();
+    unique_paths.dedup();
+    match_filtered_paths(query.as_str(), &unique_paths)
 }
 
 /// Turns the paths that a tier matched into a resolution. No match passes the
