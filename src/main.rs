@@ -14,8 +14,7 @@
 //! fallback rather than failing the run. Anything unrecoverable surfaces as an
 //! [`AppError`].
 
-use std::io::{self, Write};
-use std::{fs, path, process::exit, time::Duration};
+use std::{fs, process::exit, time::Duration};
 
 use clap::Parser;
 use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
@@ -36,7 +35,7 @@ use github::fetch_template;
 use option::Opts;
 use resolve::resolve_template_path;
 use store::unix_now;
-use ui::{display_app_error, display_template_error};
+use ui::{display_app_error, display_template_error, should_proceed};
 
 use crate::{
     catalogue::Catalogue,
@@ -117,29 +116,4 @@ fn main() -> Result<(), AppError> {
         }
     }
     Ok(())
-}
-
-fn should_proceed(path: impl AsRef<path::Path>) -> Result<bool, AppError> {
-    let mut input = String::new();
-
-    loop {
-        print!(
-            "Target file {} already exists. Overwrite [y/N]? ",
-            path.as_ref().display()
-        );
-        io::stdout()
-            .flush()
-            .expect("Should be able to flush stdout");
-        input.clear();
-        io::stdin().read_line(&mut input)?;
-        input = input.trim().to_lowercase();
-        if input.is_empty() {
-            return Ok(false);
-        }
-        match input.as_str() {
-            "y" => return Ok(true),
-            "n" => return Ok(false),
-            _ => {}
-        }
-    }
 }

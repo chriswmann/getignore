@@ -232,7 +232,11 @@ fn tails(normalised: &str) -> impl Iterator<Item = &str> {
 fn exact_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
     let filtered_paths: Vec<_> = candidates
         .iter()
-        .filter(|&candidate| *query == candidate.tail)
+        .filter(|&candidate| {
+            debug!("query: {query:12?} candidate: {:20?}", candidate.tail);
+            println!("query: {query:12?} candidate: {:20?}", candidate.tail);
+            *query == candidate.tail
+        })
         .map(|candidate| candidate.path.clone())
         .collect();
     match_filtered_paths(query.as_str(), &filtered_paths)
@@ -264,7 +268,13 @@ fn alias_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolu
 fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
     let filtered_paths: Vec<TemplatePath> = candidates
         .iter()
-        .filter(|candidate| candidate.path.file_stem().contains(query.as_str()))
+        .filter(|candidate| {
+            candidate
+                .path
+                .file_stem()
+                .to_lowercase()
+                .contains(query.as_str())
+        })
         .map(|candidate| candidate.path.clone())
         .collect();
     match_filtered_paths(query.as_str(), &filtered_paths)

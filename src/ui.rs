@@ -1,8 +1,35 @@
-use std::fmt::Write;
+use std::fmt::Write as FmtWrite;
+use std::io::{self, Write as IoWrite};
+use std::path;
 
 use tracing::instrument;
 
 use crate::error::{AppError, TemplateError};
+
+pub fn should_proceed(path: impl AsRef<path::Path>) -> Result<bool, AppError> {
+    let mut input = String::new();
+
+    loop {
+        print!(
+            "Target file {} already exists. Overwrite [y/N]? ",
+            path.as_ref().display()
+        );
+        io::stdout()
+            .flush()
+            .expect("Should be able to flush stdout");
+        input.clear();
+        io::stdin().read_line(&mut input)?;
+        input = input.trim().to_lowercase();
+        if input.is_empty() {
+            return Ok(false);
+        }
+        match input.as_str() {
+            "y" => return Ok(true),
+            "n" => return Ok(false),
+            _ => {}
+        }
+    }
+}
 
 #[instrument]
 pub fn display_app_error(app_error: &AppError) -> String {
