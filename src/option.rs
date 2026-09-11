@@ -11,7 +11,10 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Opts {
-    pub language: String,
+    #[arg(required_unless_present = "list")]
+    pub language: Option<String>,
+    #[arg(default_value_t = false, short, long, conflicts_with = "language")]
+    pub list: bool,
     #[arg(default_value = ".gitignore", short, long)]
     pub destination: PathBuf,
 }

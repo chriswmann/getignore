@@ -4,6 +4,7 @@ use std::path;
 
 use tracing::instrument;
 
+use crate::catalogue::Catalogue;
 use crate::error::{AppError, TemplateError};
 use crate::resolve::TemplatePath;
 
@@ -33,6 +34,14 @@ pub fn should_proceed(
             _ => {}
         }
     }
+}
+
+pub fn display_catalogue(catalogue: &Catalogue) -> String {
+    let mut buf = "Available templates:".to_string();
+    for (path, _) in catalogue.entries() {
+        write!(buf, "\n{path}").expect("Should be able to write catalogue paths to buffer ");
+    }
+    buf
 }
 
 #[instrument]

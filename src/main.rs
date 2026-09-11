@@ -35,7 +35,7 @@ use github::fetch_template;
 use option::Opts;
 use resolve::resolve_template_path;
 use store::unix_now;
-use ui::{display_app_error, display_template_error, should_proceed};
+use ui::{display_app_error, display_catalogue, display_template_error, should_proceed};
 
 use crate::{
     catalogue::Catalogue,
@@ -74,7 +74,14 @@ fn main() -> Result<(), AppError> {
     let agent: Agent = config.into();
     let index = load_index(&agent, index_path, ttl, now)?;
     let catalogue = Catalogue::new(index);
-    let language = opts.language;
+    if opts.list {
+        let catalogue_display = display_catalogue(&catalogue);
+        println!("{catalogue_display}");
+        exit(0);
+    }
+    let language = opts
+        .language
+        .expect("Should have a language if --list is not set");
     let template_path = match resolve_template_path(language, &catalogue) {
         Ok(path) => path,
         Err(err) => {

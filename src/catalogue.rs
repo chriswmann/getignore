@@ -13,7 +13,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Catalogue {
-    index: Index,
+    pub index: Index,
 }
 
 impl Catalogue {
