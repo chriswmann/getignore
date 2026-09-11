@@ -103,7 +103,7 @@ fn main() -> Result<(), AppError> {
     };
 
     let path = opts.destination;
-    if path.exists() && !should_proceed(path.as_path())? {
+    if path.exists() && !should_proceed(&template_path, path.as_path())? {
         println!("Exiting without saving template.");
         exit(0);
     }

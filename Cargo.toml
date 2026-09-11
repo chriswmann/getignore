@@ -1,6 +1,6 @@
 [package]
 name = "getignore-rs"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 description = "Fetch a .gitignore template from the github/gitignore repository, with caching"
 license = "GPL-3.0-or-later"

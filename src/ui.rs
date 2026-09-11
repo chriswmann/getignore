@@ -5,13 +5,17 @@ use std::path;
 use tracing::instrument;
 
 use crate::error::{AppError, TemplateError};
+use crate::resolve::TemplatePath;
 
-pub fn should_proceed(path: impl AsRef<path::Path>) -> Result<bool, AppError> {
+pub fn should_proceed(
+    template: &TemplatePath,
+    path: impl AsRef<path::Path>,
+) -> Result<bool, AppError> {
     let mut input = String::new();
 
     loop {
         print!(
-            "Target file {} already exists. Overwrite [y/N]? ",
+            "Template found: {template}\nTarget file {} already exists. Overwrite [y/N]? ",
             path.as_ref().display()
         );
         io::stdout()
