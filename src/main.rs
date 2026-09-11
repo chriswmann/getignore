@@ -108,7 +108,7 @@ fn main() -> Result<(), AppError> {
         exit(0);
     }
     match atomic_write_file(&template, &path) {
-        Ok(()) => debug!("template written to {}", path.display()),
+        Ok(()) => println!("Writing {template_path} to {}", path.display()),
         Err(err) => {
             let message = display_app_error(&err);
             eprintln!("{message}");
