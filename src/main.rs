@@ -5,14 +5,16 @@
 //! or to the path given by `-d/--destination`.
 //!
 //! The flow is: parse [`Opts`], locate the cache directory, load or refresh the
-//! template index, wrap it in a [`Catalogue`], [`resolve()`] the query to a
-//! template path, read that template from the blob cache or fetch it, then
-//! write it out.
+//! template index, and wrap it in a [`Catalogue`]. With `--list`, print the
+//! catalogue and exit. Otherwise, resolve the query to a template path with
+//! [`resolve_template_path`], read that template from the blob cache or fetch
+//! it, ask before overwriting an existing destination, then write it out.
 //!
 //! Both the index and the individual templates are cached, so repeat runs are
 //! fast and work offline. A stale index that cannot be refreshed is used as a
-//! fallback rather than failing the run. Anything unrecoverable surfaces as an
-//! [`AppError`].
+//! fallback rather than failing the run. Some errors return from `main` as an
+//! [`AppError`]. Others are printed through [`ui`] and end the process with
+//! exit code 1.
 
 use std::{fs, process::exit, time::Duration};
 

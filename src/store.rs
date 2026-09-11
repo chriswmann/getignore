@@ -5,7 +5,7 @@
 //! stored as JSON, with its schema pinned by
 //! `tests/fixtures/cache-fixture.json`. Each fetched template is
 //! cached in its own file, using its blob SHA as the name, i.e. the template
-//! cache content is addressed: an entry is valid exactly when
+//! cache is content-addressed: an entry is valid exactly when
 //! the SHA the index returns is present on disk, so there is no last-modified
 //! comparison to get wrong.
 //!

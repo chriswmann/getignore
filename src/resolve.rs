@@ -1,21 +1,26 @@
 //! Query resolution to identify templates. No IO.
 //!
+//! Each index path gives one candidate for each trailing part of the path (its
+//! tails), so `community/BoxLang/ColdBox.gitignore` gives `coldbox`,
+//! `boxlang/coldbox` and `community/boxlang/coldbox`.
+//!
 //! [`resolve`] tries four tiers in order and stops at the first that answers:
 //!
-//! 1. exact match against the normalised path, reporting
-//!    [`Resolution::DidYouMean`] when more than one entry matches closely
-//!    or [`Resolution::NotFound`] otherwise
+//! 1. exact match of the query against the candidate tails,
 //! 2. the hand-maintained alias table in `aliases.txt` (`js` -> `Node`), which
 //!    rewrites the query and retries the exact tier,
-//! 3. substring match: the first entry whose path contains the query wins.
-//!    Only the query is normalised here, not the path, so this tier is
-//!    case-sensitive against the repository's own casing, and it neither
-//!    requires the match to be unique nor reports ambiguity,
-//! 4. fuzzy match by `strsim::osa_distance`, within a distance of two.
+//! 3. substring match: the templates whose file stem contains the query,
+//!    case-insensitively,
+//! 4. fuzzy match of the query against the candidate tails by
+//!    `strsim::osa_distance`, within a distance of one.
 //!
-//! The fuzzy tier returns [`Resolution::DidYouMean`] with the candidates
-//! ordered best first and leaves the decision to the caller, so a typo
-//! won't silently fetch the wrong template.
+//! A tier with no match passes the query to the next tier, and if no tier
+//! matches, the result is [`Resolution::NotFound`]. When the exact or substring
+//! tier matches more than one template, it returns [`Resolution::DidYouMean`]
+//! with the matches whose file stem is within a distance of two of the first
+//! match. The fuzzy tier always returns [`Resolution::DidYouMean`], with the
+//! candidates ordered best first, and leaves the decision to the caller, so a
+//! typo won't silently fetch the wrong template.
 //!
 //! Normalising means lowercasing and stripping any `.gitignore` suffix, and is
 //! applied to both sides of every comparison. [`TemplatePath`] carries the
@@ -81,7 +86,9 @@ impl<'a> OsaResult<'a> {
 pub enum Resolution {
     /// Language recognised and the gitignore will be provided.
     Resolved(TemplatePath),
-    /// Language not recognised but one or more suggestions found. Rest is ordered best first.
+    /// Language not recognised but one or more suggestions found. Suggestions
+    /// from the fuzzy tier are ordered best first. Suggestions from the other
+    /// tiers keep the candidate order.
     DidYouMean { suggestions: Vec<TemplatePath> },
     /// Language not recognised, no suggestions found.
     NotFound,
@@ -184,10 +191,11 @@ fn resolve(query: &NormalisedSlug, catalogue: &Catalogue) -> Resolution {
         .unwrap_or(Resolution::NotFound)
 }
 
-// Builds candidate matches from the catalogue,
-// ensuring they are deterministically ordered and deduped.
-// In turn, this ensures matching tiers do not return
-// duplicates.
+// Builds candidate matches from the catalogue, sorted by tail and then by
+// path, with duplicate (tail, path) pairs removed, so the order is
+// deterministic. Each path still gives one candidate per tail. A tier that
+// compares something other than the tail, such as `contains_tier`, which
+// compares the file stem, can therefore match the same path more than once.
 fn candidates(catalogue: &Catalogue) -> Vec<Candidate> {
     let mut candidates: Vec<Candidate> = catalogue
         .entries()
@@ -234,7 +242,6 @@ fn exact_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolu
         .iter()
         .filter(|&candidate| {
             debug!("query: {query:12?} candidate: {:20?}", candidate.tail);
-            println!("query: {query:12?} candidate: {:20?}", candidate.tail);
             *query == candidate.tail
         })
         .map(|candidate| candidate.path.clone())
@@ -244,23 +251,9 @@ fn exact_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolu
 
 #[instrument(skip(candidates))]
 fn alias_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Resolution> {
-    let target = aliases().find_map(|(alias, target)| {
-        {
-            debug!(
-                "alias: {alias:12?} query: {:12?} target: {:12?}",
-                query.as_str(),
-                target.as_str()
-            );
-
-            debug!("alias matched, target={target:?}");
-
-            let result = exact_tier(&target, candidates);
-
-            debug!("exact_tier returned {result:?}");
-        }
-
-        (alias == query.as_str()).then_some(target)
-    })?;
+    let target =
+        aliases().find_map(|(alias, target)| (alias == query.as_str()).then_some(target))?;
+    debug!("alias matched, target={target:?}");
     exact_tier(&target, candidates)
 }
 
@@ -280,6 +273,10 @@ fn contains_tier(query: &NormalisedSlug, candidates: &[Candidate]) -> Option<Res
     match_filtered_paths(query.as_str(), &filtered_paths)
 }
 
+/// Turns the paths that a tier matched into a resolution. No match passes the
+/// query to the next tier, and one match resolves. For more than one match,
+/// the suggestions are the paths whose lowercased file stem is within a
+/// distance of two of the stem of the first match.
 #[instrument]
 fn match_filtered_paths(query: &str, filtered_paths: &[TemplatePath]) -> Option<Resolution> {
     match filtered_paths {
@@ -450,8 +447,10 @@ mod tests {
         Catalogue::for_tests(&entries)
     }
 
-    /// The candidates `candidates(test_catalogue())` produces: one per tail,
-    /// in `BTreeMap` path order, shortest tail first within each path.
+    /// The candidates for `test_catalogue()`: one per tail, in `BTreeMap` path
+    /// order, shortest tail first within each path. `candidates()` gives the
+    /// same set sorted by tail, so a test that uses this list must not depend
+    /// on its order.
     fn test_candidates() -> Vec<Candidate> {
         vec![
             Candidate {

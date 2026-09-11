@@ -52,8 +52,8 @@ run = "cargo fmt --all"
 [tasks.lint]
 description = "Run clippy"
 alias = "l"
-run = "cargo clippy --bin getignore"
+run = "cargo clippy --bin gi"
 
 [tasks.clear-cache]
-description = "Clear the .local cache"
+description = "Clear the ~/.cache/getignore cache"
 run = "rm -r ~/.cache/getignore"

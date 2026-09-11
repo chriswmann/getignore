@@ -10,12 +10,13 @@
 //! 3. `raw.githubusercontent.com`, addressed by the commit SHA, for an
 //!    individual template.
 //!
-//! Keeping those two SHAs apart is why [`CommitSha`], [`TreeSha`] and
-//! [`BlobSha`] are separate newtypes rather than `String`s. The tree SHA
+//! Keeping the commit and tree SHAs apart is why [`CommitSha`], [`TreeSha`]
+//! and [`BlobSha`] are separate newtypes rather than `String`s. The tree SHA
 //! addresses the Trees API and nothing else; the commit SHA is what gets
 //! persisted as the index's source and interpolated into raw template URLs.
 //! The blob SHA is used for content-addressed caching of the templates.
-//! All three URL shape invariants are covered by the tests below.
+//! The tests below pin the branch and tree URLs. The raw template URL has no
+//! test.
 //!
 //! This module issues requests and deserialises responses. It holds no cache
 //! policy and never touches the filesystem.

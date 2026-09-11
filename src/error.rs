@@ -1,6 +1,10 @@
-//! The crate's error type.
+//! The crate's error types.
 //!
-//! [`AppError`] ariants that wrap another error return it from `source`,
+//! [`AppError`] covers failures outside query resolution, such as I/O, network
+//! and (de)serialisation errors. [`TemplateError`] covers a query that does not
+//! resolve to exactly one template.
+//!
+//! [`AppError`] variants that wrap another error return it from `source`,
 //! keeping the underlying errors reachable to anything walking the chain;
 //! message-only variants return `None`.
 //!
@@ -102,7 +106,7 @@ impl Display for TemplateError {
             } => {
                 write!(f, "Could not identify single template for {query}.")
             }
-            TemplateError::EmptyQuery => write!(f, "No langage detected"),
+            TemplateError::EmptyQuery => write!(f, "No language detected"),
         }
     }
 }
