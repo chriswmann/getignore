@@ -20,7 +20,7 @@ use std::{fs, process::exit, time::Duration};
 
 use clap::Parser;
 use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
-use tracing::debug;
+use tracing::{debug, warn};
 use tracing_subscriber::EnvFilter;
 use ureq::Agent;
 
@@ -105,8 +105,9 @@ fn main() -> Result<(), AppError> {
         let template = fetch_template(&agent, source_commit, template_path.as_str())?;
         if let Err(err) = save_blob_to_cache(&template, &blob_path) {
             let message = display_app_error(&err);
-            eprintln!("{message}");
-            exit(1);
+            // Logging a warning is consistent with how an index cache write failure is handled
+            // in store.rs.
+            warn!("{message}");
         }
         template
     };
