@@ -157,7 +157,7 @@ pub fn resolve_template_path(
         }
         Resolution::DidYouMean { suggestions } => {
             debug!(
-                "Could not resolve {normalised_query:?} but found suggestions (AppError::DidYouMean)."
+                "Could not resolve {normalised_query:?} but found suggestions (TemplateError::DidYouMean)."
             );
             Err(TemplateError::DidYouMean { query, suggestions })
         }
