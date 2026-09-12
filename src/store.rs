@@ -113,7 +113,7 @@ pub fn load_index(
             match fetch_and_cache_index(agent, index_path.as_ref(), now) {
                 Ok(index) => index,
                 Err(err) => {
-                    debug!(
+                    warn!(
                         "Cache is stale but could not reach GitHub, using cached index as fallback: {err}"
                     );
                     index
