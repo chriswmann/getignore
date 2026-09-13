@@ -64,9 +64,9 @@ pub fn display_template_error(error: &TemplateError) -> String {
     match error {
         TemplateError::DidYouMean { query, suggestions } => {
             let mut buf =
-                format!("'{query}' did not match any templates. Found these suggestions:\n");
+                format!("'{query}' did not match any templates. Found these suggestions:");
             for suggestion in suggestions {
-                writeln!(buf, "{suggestion}").unwrap();
+                write!(buf, "\n{suggestion}").unwrap();
             }
             buf
         }

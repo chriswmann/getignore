@@ -177,6 +177,7 @@ pub fn atomic_write_file(contents: &str, dest: &Path) -> Result<(), AppError> {
     })?;
     let tmp_path = dir.join(format!("{file_name}.{}.tmp", process::id()));
 
+    fs::create_dir_all(dir)?;
     fs::write(&tmp_path, contents)?;
     if let Err(err) = fs::rename(&tmp_path, dest) {
         let _ = fs::remove_file(&tmp_path);
